@@ -24,9 +24,9 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 public class mytest implements IXposedHookLoadPackage {
     private static final String MODULE_PACKAGE = "com.vivian8421.mipushEnhance";
-    private static final long PENDING_INTENT_RETRY_DELAY_MS = 250L;
-    private static final long PENDING_INTENT_SECOND_RETRY_DELAY_MS = 700L;
-    private static final long DIRECT_ACTIVITY_FALLBACK_DELAY_MS = 1200L;
+    private static final long PENDING_INTENT_RETRY_DELAY_MS = 1600L;
+    private static final long PENDING_INTENT_SECOND_RETRY_DELAY_MS = 900L;
+    private static final long DIRECT_ACTIVITY_FALLBACK_DELAY_MS = 2200L;
     private static final int MAX_PENDING_INTENT_RETRY_COUNT = 2;
     private static final int INTENT_SENDER_ACTIVITY = 2;
     private static final ThreadLocal<Boolean> retryingPendingIntent = new ThreadLocal<>();
@@ -90,6 +90,19 @@ public class mytest implements IXposedHookLoadPackage {
                         return;
                     }
                     WakeRequest wakeRequest = wakePackagesBeforeLaunch(param.thisObject, param.args, classLoader);
+                    if (wakeRequest.enabledPackage) {
+                        log("delay PendingIntent until target package is ready packages="
+                                + wakeRequest.packages + " userId=" + wakeRequest.userId);
+                        retryPendingIntentSend(param.thisObject, param.args, classLoader, wakeRequest.userId);
+                        scheduleOriginalActivityFallback(
+                                param.thisObject,
+                                param.args,
+                                classLoader,
+                                wakeRequest.userId,
+                                DIRECT_ACTIVITY_FALLBACK_DELAY_MS);
+                        param.setResult(0);
+                        return;
+                    }
                     pushPendingIntentWakeRequest(wakeRequest);
                 }
 
