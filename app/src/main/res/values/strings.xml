@@ -20,7 +20,7 @@
     <string name="about_title">关于</string>
     <string name="about_readme_title">New Mipush Enhance</string>
     <string name="about_readme_intro">一个用于增强小米推送通知体验的 Xposed / LSPosed 模块。</string>
-    <string name="about_readme_source">本项目地址：https://github.com/codecodegogogo/New-MiPush-Enhance&#10;&#10;本项目 forked from vivian8421/MiPush-Enhance：https://github.com/vivian8421/MiPush-Enhance</string>
+    <string name="about_readme_source">本项目地址：https://github.com/codecodegogogo/New-MiPush-Enhance&#10;&#10;本项目forked from vivian8421/MiPush-Enhance：https://github.com/vivian8421/MiPush-Enhance</string>
     <string name="readme_section_features">功能</string>
     <string name="about_readme_features">- 在冻结应用收到 MIPush 通知后，点击通知时自动解冻目标应用。&#10;- 解冻后重新触发原通知的 PendingIntent。&#10;- 针对部分系统场景，会额外清除应用 stopped 状态，提升拉起成功率。&#10;- 提供模块设置页，可隐藏桌面图标、查看说明并快速重启手机。</string>
     <string name="readme_section_usage">使用</string>
