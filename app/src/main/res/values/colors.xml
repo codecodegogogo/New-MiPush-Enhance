@@ -10,6 +10,8 @@
     <color name="settings_text_primary">#FF111111</color>
     <color name="settings_text_secondary">#FF767676</color>
     <color name="settings_section">#FF9393A6</color>
+    <color name="dialog_action_blue">#FF4D82F3</color>
+    <color name="dialog_button_neutral">#FFF1F1F2</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 </resources>

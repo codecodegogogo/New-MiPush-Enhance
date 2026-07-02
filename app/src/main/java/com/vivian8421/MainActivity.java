@@ -2,17 +2,19 @@ package com.vivian8421;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.app.Dialog;
 import android.content.ComponentName;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.graphics.Typeface;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.CompoundButton;
-import android.widget.TextView;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.vivian8421.mipushEnhance.R;
 
 public class MainActivity extends AppCompatActivity implements CompoundButton.OnCheckedChangeListener {
@@ -71,27 +73,24 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
     }
 
     private void showRebootConfirmDialog() {
-        new MaterialAlertDialogBuilder(this)
-                .setCustomTitle(createRebootConfirmTitle())
-                .setMessage(R.string.reboot_confirm_message)
-                .setPositiveButton(R.string.dialog_yes, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialogInterface, int which) {
-                        rebootPhone();
-                    }
-                })
-                .setNegativeButton(R.string.dialog_no, null)
-                .show();
-    }
+        final Dialog dialog = createBottomDialog(R.layout.dialog_reboot_confirm);
+        View cancelButton = dialog.findViewById(R.id.dialog_cancel_btn);
+        View confirmButton = dialog.findViewById(R.id.dialog_confirm_btn);
 
-    private TextView createRebootConfirmTitle() {
-        TextView titleView = new TextView(this);
-        titleView.setText(R.string.reboot_confirm_title);
-        titleView.setTextColor(getResources().getColor(R.color.settings_text_primary));
-        titleView.setTextSize(22);
-        titleView.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        titleView.setPadding(dp(24), dp(20), dp(24), dp(4));
-        return titleView;
+        cancelButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                dialog.dismiss();
+            }
+        });
+        confirmButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                dialog.dismiss();
+                rebootPhone();
+            }
+        });
+        showBottomDialog(dialog);
     }
 
     private void rebootPhone() {
@@ -115,16 +114,42 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                new MaterialAlertDialogBuilder(MainActivity.this)
-                        .setTitle(R.string.reboot_failed_title)
-                        .setMessage(R.string.reboot_failed_message)
-                        .setPositiveButton(R.string.dialog_ok, null)
-                        .show();
+                final Dialog dialog = createBottomDialog(R.layout.dialog_reboot_failed);
+                View okButton = dialog.findViewById(R.id.dialog_ok_btn);
+                okButton.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View view) {
+                        dialog.dismiss();
+                    }
+                });
+                showBottomDialog(dialog);
             }
         });
     }
 
-    private int dp(int value) {
-        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    private Dialog createBottomDialog(int layoutResId) {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setContentView(layoutResId);
+        dialog.setCanceledOnTouchOutside(true);
+        return dialog;
+    }
+
+    private void showBottomDialog(Dialog dialog) {
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window == null) {
+            return;
+        }
+
+        window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+
+        WindowManager.LayoutParams params = window.getAttributes();
+        params.width = WindowManager.LayoutParams.MATCH_PARENT;
+        params.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        params.gravity = Gravity.BOTTOM;
+        params.dimAmount = 0.35f;
+        window.setAttributes(params);
     }
 }
