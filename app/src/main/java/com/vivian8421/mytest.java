@@ -71,7 +71,12 @@ public class mytest implements IXposedHookLoadPackage {
     }
 
     private void hookPendingIntentWake(final ClassLoader classLoader) {
-        Class<?> pendingIntentRecordClass = findClassSafely("com.android.server.am.PendingIntentRecord", classLoader);
+        hookPendingIntentWakeClass("com.android.server.am.PendingIntentRecord", classLoader);
+        hookPendingIntentWakeClass("com.android.server.wm.PendingIntentRecord", classLoader);
+    }
+
+    private void hookPendingIntentWakeClass(String className, final ClassLoader classLoader) {
+        Class<?> pendingIntentRecordClass = findClassSafely(className, classLoader);
         if (pendingIntentRecordClass == null) {
             return;
         }
@@ -101,9 +106,9 @@ public class mytest implements IXposedHookLoadPackage {
                     }
                 }
             });
-            log("PendingIntentRecord.sendInner hook installed");
+            log(className + ".sendInner hook installed");
         } catch (Throwable e) {
-            log("PendingIntentRecord.sendInner hook failed: " + e);
+            log(className + ".sendInner hook failed: " + e);
         }
     }
 
