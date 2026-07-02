@@ -26,6 +26,7 @@ public class mytest implements IXposedHookLoadPackage {
     private static final String MODULE_PACKAGE = "com.vivian8421.mipushEnhance";
     private static final long PENDING_INTENT_RETRY_DELAY_MS = 250L;
     private static final long PENDING_INTENT_SECOND_RETRY_DELAY_MS = 700L;
+    private static final long DIRECT_ACTIVITY_FALLBACK_DELAY_MS = 1200L;
     private static final int MAX_PENDING_INTENT_RETRY_COUNT = 2;
     private static final int INTENT_SENDER_ACTIVITY = 2;
     private static final ThreadLocal<Boolean> retryingPendingIntent = new ThreadLocal<>();
@@ -103,6 +104,12 @@ public class mytest implements IXposedHookLoadPackage {
                         log("retry PendingIntent for packages=" + wakeRequest.packages
                                 + " userId=" + wakeRequest.userId + " originalResult=" + result);
                         retryPendingIntentSend(param.thisObject, param.args, classLoader, wakeRequest.userId);
+                        scheduleOriginalActivityFallback(
+                                param.thisObject,
+                                param.args,
+                                classLoader,
+                                wakeRequest.userId,
+                                DIRECT_ACTIVITY_FALLBACK_DELAY_MS);
                     }
                 }
             });
@@ -452,6 +459,37 @@ public class mytest implements IXposedHookLoadPackage {
 
     private boolean isStartFailureResult(Object result) {
         return result instanceof Integer && ((Integer) result) < 0;
+    }
+
+    private void scheduleOriginalActivityFallback(
+            final Object pendingIntentRecord,
+            Object[] args,
+            final ClassLoader classLoader,
+            final int userId,
+            long delayMs) {
+        final Object[] fallbackArgs = args == null ? new Object[0] : args.clone();
+        Handler handler = getMainHandler();
+        Runnable fallbackRunnable = new Runnable() {
+            @Override
+            public void run() {
+                startOriginalActivityIntent(pendingIntentRecord, fallbackArgs, classLoader, userId);
+            }
+        };
+
+        if (handler != null) {
+            handler.postDelayed(fallbackRunnable, delayMs);
+        } else {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Thread.sleep(delayMs);
+                    } catch (InterruptedException ignored) {
+                    }
+                    fallbackRunnable.run();
+                }
+            }).start();
+        }
     }
 
     private boolean shouldRetryPendingIntentAfterOriginalSend(WakeRequest wakeRequest, Object result) {
