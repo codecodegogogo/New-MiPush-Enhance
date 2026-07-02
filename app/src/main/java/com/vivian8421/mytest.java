@@ -192,6 +192,11 @@ public class mytest implements IXposedHookLoadPackage {
                     if (request != null
                             && isRecentNotificationLaunch(request.packageName, request.userId)) {
                         wakePackagesBeforeLaunch(param.thisObject, param.args, classLoader);
+                        if (startRecentNotificationActivityFromSystem(request, classLoader, param.method)) {
+                            param.setResult(createActivityStartSuccessResult(param.method));
+                            pushActivityStartRequest(null);
+                            return;
+                        }
                         pushActivityStartRequest(request);
                     } else {
                         pushActivityStartRequest(null);
@@ -1663,6 +1668,48 @@ public class mytest implements IXposedHookLoadPackage {
         } finally {
             startingActivityFallback.remove();
         }
+    }
+
+    private boolean startRecentNotificationActivityFromSystem(
+            ActivityStartRequest request,
+            ClassLoader classLoader,
+            Member method) {
+        if (request == null || request.intent == null) {
+            return false;
+        }
+
+        boolean started = startActivityIntentFallback(request.intent, classLoader, request.userId);
+        if (started) {
+            log("bypass background activity launch block for notification package="
+                    + request.packageName + " userId=" + request.userId
+                    + " method=" + getMemberName(method));
+        }
+        return started;
+    }
+
+    private Object createActivityStartSuccessResult(Member method) {
+        Class<?> returnType = getReturnType(method);
+        if (returnType == null || Void.TYPE.equals(returnType)) {
+            return null;
+        }
+        if (Integer.TYPE.equals(returnType) || Integer.class.equals(returnType)) {
+            return 0;
+        }
+        if (Boolean.TYPE.equals(returnType) || Boolean.class.equals(returnType)) {
+            return true;
+        }
+        return null;
+    }
+
+    private Class<?> getReturnType(Member method) {
+        if (method instanceof Method) {
+            return ((Method) method).getReturnType();
+        }
+        return null;
+    }
+
+    private String getMemberName(Member method) {
+        return method == null ? "unknown" : method.getName();
     }
 
     private boolean startActivityAsUserWithOptions(Context context, Intent intent, Bundle options, Object userHandle) {
