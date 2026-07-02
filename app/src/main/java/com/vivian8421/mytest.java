@@ -115,6 +115,10 @@ public class mytest implements IXposedHookLoadPackage {
                     if (!isSystemOrSystemUiSender(classLoader)) {
                         return;
                     }
+                    if (!isMipushNotificationClickPendingIntent(param.thisObject, param.args)) {
+                        pushPendingIntentWakeRequest(null);
+                        return;
+                    }
                     WakeRequest wakeRequest = wakePackagesBeforeLaunch(param.thisObject, param.args, classLoader);
                     if (wakeRequest.enabledPackage) {
                         log("pass original PendingIntent after enabling target package packages="
@@ -181,8 +185,17 @@ public class mytest implements IXposedHookLoadPackage {
             return;
         }
 
+        hookStartActivityMethod(serviceClass, className, "startActivity", classLoader);
+        hookStartActivityMethod(serviceClass, className, "startActivityAsUser", classLoader);
+    }
+
+    private void hookStartActivityMethod(
+            Class<?> serviceClass,
+            String className,
+            String methodName,
+            final ClassLoader classLoader) {
         try {
-            XposedBridge.hookAllMethods(serviceClass, "startActivityAsUser", new XC_MethodHook() {
+            XposedBridge.hookAllMethods(serviceClass, methodName, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
                     if (isStartingActivityFallback()) {
@@ -221,9 +234,9 @@ public class mytest implements IXposedHookLoadPackage {
                     }
                 }
             });
-            log(className + ".startActivityAsUser hook installed");
+            log(className + "." + methodName + " hook installed");
         } catch (Throwable e) {
-            log(className + ".startActivityAsUser hook failed: " + e);
+            log(className + "." + methodName + " hook failed: " + e);
         }
     }
 
@@ -237,7 +250,7 @@ public class mytest implements IXposedHookLoadPackage {
             XposedBridge.hookAllMethods(serviceClass, "startService", new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                    WakeRequest wakeRequest = wakePackagesBeforeLaunch(
+                    WakeRequest wakeRequest = wakePackagesForRecentNotificationLaunch(
                             param.thisObject,
                             param.args,
                             classLoader);
@@ -264,7 +277,7 @@ public class mytest implements IXposedHookLoadPackage {
             XposedBridge.hookAllMethods(serviceClass, "broadcastIntentWithFeature", new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                    WakeRequest wakeRequest = wakePackagesBeforeLaunch(
+                    WakeRequest wakeRequest = wakePackagesForRecentNotificationLaunch(
                             param.thisObject,
                             param.args,
                             classLoader);
@@ -278,7 +291,7 @@ public class mytest implements IXposedHookLoadPackage {
             XposedBridge.hookAllMethods(serviceClass, "broadcastIntent", new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                    WakeRequest wakeRequest = wakePackagesBeforeLaunch(
+                    WakeRequest wakeRequest = wakePackagesForRecentNotificationLaunch(
                             param.thisObject,
                             param.args,
                             classLoader);
@@ -311,6 +324,21 @@ public class mytest implements IXposedHookLoadPackage {
             }
         }
         return new WakeRequest(enabledPackage, packages, userId);
+    }
+
+    private WakeRequest wakePackagesForRecentNotificationLaunch(
+            Object sourceObject,
+            Object[] args,
+            ClassLoader classLoader) {
+        int userId = readUserIdFromArgs(args, readUserId(sourceObject));
+        Set<String> packages = new HashSet<>();
+        collectPackagesFromArgs(args, packages);
+        collectPackagesFromPendingIntentKey(sourceObject, packages);
+        if (!isRecentNotificationLaunch(packages, userId)) {
+            return new WakeRequest(false, packages, userId);
+        }
+
+        return wakePackagesBeforeLaunch(sourceObject, args, classLoader);
     }
 
     private ActivityStartRequest createActivityStartRequest(Object[] args, ClassLoader classLoader) {
@@ -1864,6 +1892,18 @@ public class mytest implements IXposedHookLoadPackage {
                         && (launch.userId == userId || launch.userId < 0 || userId < 0)) {
                     return true;
                 }
+            }
+        }
+        return false;
+    }
+
+    private boolean isRecentNotificationLaunch(Set<String> packages, int userId) {
+        if (packages == null || packages.isEmpty()) {
+            return false;
+        }
+        for (String packageName : packages) {
+            if (isRecentNotificationLaunch(packageName, userId)) {
+                return true;
             }
         }
         return false;
