@@ -116,6 +116,7 @@ public class mytest implements IXposedHookLoadPackage {
                         return;
                     }
                     if (!isMipushNotificationClickPendingIntent(param.thisObject, param.args)) {
+                        log("skip non-MiPush PendingIntent " + describePendingIntentForLog(param.thisObject, param.args));
                         pushPendingIntentWakeRequest(null);
                         return;
                     }
@@ -1565,10 +1566,22 @@ public class mytest implements IXposedHookLoadPackage {
 
     private boolean isMipushNotificationClickPendingIntent(Object pendingIntentRecord, Object[] args) {
         Object key = getObjectFieldSafely(pendingIntentRecord, "key");
-        if (hasMipushNotificationClickMarker(getLastIntentFromPendingIntentKey(key))) {
+        Intent keyIntent = getLastIntentFromPendingIntentKey(key);
+        Intent fillInIntent = getFillInIntentFromArgs(args);
+        if (isAlarmLikePendingIntent(keyIntent) || isAlarmLikePendingIntent(fillInIntent)) {
+            return false;
+        }
+        if (hasMipushNotificationClickMarker(keyIntent)
+                || hasMipushNotificationClickMarker(fillInIntent)) {
             return true;
         }
-        return hasMipushNotificationClickMarker(getFillInIntentFromArgs(args));
+        if (hasPushMessageHandlerComponent(keyIntent)
+                || hasPushMessageHandlerComponent(fillInIntent)) {
+            return true;
+        }
+
+        Set<String> packages = collectPendingIntentPackages(pendingIntentRecord, args, null);
+        return packages.contains(XMSF_PACKAGE) && hasTargetLaunchPackage(packages);
     }
 
     private boolean hasMipushNotificationClickMarker(Intent intent) {
@@ -1576,6 +1589,63 @@ public class mytest implements IXposedHookLoadPackage {
             return false;
         }
         return hasMipushNotificationClickMarker(intent.getExtras(), 0);
+    }
+
+    private boolean hasPushMessageHandlerComponent(Intent intent) {
+        if (intent == null) {
+            return false;
+        }
+        ComponentName componentName = intent.getComponent();
+        if (componentName != null
+                && componentName.getClassName() != null
+                && componentName.getClassName().contains("PushMessageHandler")) {
+            return true;
+        }
+        Intent selector = intent.getSelector();
+        return selector != null && selector != intent && hasPushMessageHandlerComponent(selector);
+    }
+
+    private boolean hasTargetLaunchPackage(Set<String> packages) {
+        if (packages == null || packages.isEmpty()) {
+            return false;
+        }
+        for (String packageName : packages) {
+            if (isTargetLaunchCandidate(packageName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isAlarmLikePendingIntent(Intent intent) {
+        if (intent == null || intent.getAction() == null) {
+            return false;
+        }
+        String action = intent.getAction().toLowerCase(Locale.US);
+        return action.contains("alarm");
+    }
+
+    private String describePendingIntentForLog(Object pendingIntentRecord, Object[] args) {
+        Object key = getObjectFieldSafely(pendingIntentRecord, "key");
+        Intent keyIntent = getLastIntentFromPendingIntentKey(key);
+        Intent fillInIntent = getFillInIntentFromArgs(args);
+        Set<String> packages = collectPendingIntentPackages(pendingIntentRecord, args, null);
+        int type = getIntFieldSafely(key, "type", -1);
+        return "type=" + type
+                + " packages=" + packages
+                + " keyIntent=" + summarizeIntentForLog(keyIntent)
+                + " fillIn=" + summarizeIntentForLog(fillInIntent);
+    }
+
+    private String summarizeIntentForLog(Intent intent) {
+        if (intent == null) {
+            return "null";
+        }
+        return "{action=" + intent.getAction()
+                + ",pkg=" + intent.getPackage()
+                + ",cmp=" + intent.getComponent()
+                + ",categories=" + intent.getCategories()
+                + "}";
     }
 
     private boolean hasMipushNotificationClickMarker(Bundle bundle, int depth) {
