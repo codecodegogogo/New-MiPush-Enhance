@@ -30,6 +30,8 @@ public class mytest implements IXposedHookLoadPackage {
     private static final String MODULE_PACKAGE = "com.vivian8421.mipushEnhance";
     private static final long PENDING_INTENT_RETRY_DELAY_MS = 1600L;
     private static final long PENDING_INTENT_SECOND_RETRY_DELAY_MS = 900L;
+    private static final long PACKAGE_READY_WAIT_MS = 2200L;
+    private static final long PACKAGE_READY_WAIT_STEP_MS = 50L;
     private static final long RECENT_NOTIFICATION_LAUNCH_WINDOW_MS = 10000L;
     private static final int MAX_PENDING_INTENT_RETRY_COUNT = 2;
     private static final int INTENT_SENDER_ACTIVITY = 2;
@@ -109,15 +111,18 @@ public class mytest implements IXposedHookLoadPackage {
                     }
                     WakeRequest wakeRequest = wakePackagesBeforeLaunch(param.thisObject, param.args, classLoader);
                     if (wakeRequest.enabledPackage) {
-                        log("delay PendingIntent until target package is ready packages="
+                        log("pass original PendingIntent after enabling target package packages="
                                 + wakeRequest.packages + " userId=" + wakeRequest.userId);
-                        Object[] delayedArgs = preparePendingIntentSendArgs(
-                                param.thisObject,
-                                param.args,
-                                param.method);
+                        applyPendingIntentSendArgs(param.thisObject, param.args, param.method);
                         rememberNotificationLaunch(wakeRequest.packages, wakeRequest.userId);
-                        retryPendingIntentSend(param.thisObject, delayedArgs, classLoader, wakeRequest.userId);
-                        param.setResult(0);
+                        if (!waitPackagesReady(wakeRequest.packages, wakeRequest.userId, classLoader)) {
+                            log("target package is still disabled, keep PendingIntent blocked packages="
+                                    + wakeRequest.packages + " userId=" + wakeRequest.userId);
+                            retryPendingIntentSend(param.thisObject, param.args, classLoader, wakeRequest.userId);
+                            param.setResult(0);
+                            return;
+                        }
+                        pushPendingIntentWakeRequest(wakeRequest);
                         return;
                     }
                     pushPendingIntentWakeRequest(wakeRequest);
@@ -409,6 +414,44 @@ public class mytest implements IXposedHookLoadPackage {
         }
     }
 
+    private boolean waitPackagesReady(Set<String> packages, int userId, ClassLoader classLoader) {
+        if (packages == null || packages.isEmpty()) {
+            return true;
+        }
+
+        long deadline = System.currentTimeMillis() + PACKAGE_READY_WAIT_MS;
+        while (System.currentTimeMillis() < deadline) {
+            if (arePackagesReady(packages, userId, classLoader)) {
+                return true;
+            }
+            try {
+                Thread.sleep(PACKAGE_READY_WAIT_STEP_MS);
+            } catch (InterruptedException ignored) {
+                return false;
+            }
+        }
+        return arePackagesReady(packages, userId, classLoader);
+    }
+
+    private boolean arePackagesReady(Set<String> packages, int userId, ClassLoader classLoader) {
+        Context context = getSystemContext(classLoader);
+        if (context == null) {
+            return true;
+        }
+
+        PackageManager packageManager = context.getPackageManager();
+        for (String packageName : packages) {
+            if (shouldSkipPackage(packageName)) {
+                continue;
+            }
+            int state = getApplicationEnabledSetting(packageManager, packageName, userId, classLoader);
+            if (isDisabledState(state)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private int getApplicationEnabledSetting(PackageManager packageManager, String packageName, int userId, ClassLoader classLoader) {
         Object iPackageManager = getPackageManagerService(classLoader);
         if (iPackageManager != null) {
@@ -519,6 +562,26 @@ public class mytest implements IXposedHookLoadPackage {
         Runnable retryRunnable = new Runnable() {
             @Override
             public void run() {
+                WakeRequest wakeRequest = wakePackagesBeforeLaunch(
+                        pendingIntentRecord,
+                        retryArgs,
+                        classLoader);
+                int retryUserId = wakeRequest.userId >= 0 ? wakeRequest.userId : userId;
+                if (!waitPackagesReady(wakeRequest.packages, retryUserId, classLoader)) {
+                    log("skip retry because target package is still disabled packages="
+                            + wakeRequest.packages + " userId=" + retryUserId);
+                    if (attempt < MAX_PENDING_INTENT_RETRY_COUNT) {
+                        retryPendingIntentSend(
+                                pendingIntentRecord,
+                                retryArgs,
+                                classLoader,
+                                retryUserId,
+                                attempt + 1,
+                                PENDING_INTENT_SECOND_RETRY_DELAY_MS);
+                    }
+                    return;
+                }
+
                 retryingPendingIntent.set(true);
                 try {
                     Object result = XposedHelpers.callMethod(pendingIntentRecord, "sendInner", retryArgs);
@@ -529,11 +592,11 @@ public class mytest implements IXposedHookLoadPackage {
                                 pendingIntentRecord,
                                 retryArgs,
                                 classLoader,
-                                userId,
+                                retryUserId,
                                 attempt + 1,
                                 PENDING_INTENT_SECOND_RETRY_DELAY_MS);
                     } else if (isStartFailureResult(result)) {
-                        startOriginalActivityIntent(pendingIntentRecord, retryArgs, classLoader, userId);
+                        startOriginalActivityIntent(pendingIntentRecord, retryArgs, classLoader, retryUserId);
                     }
                 } catch (Throwable e) {
                     log("retry notification PendingIntent failed attempt=" + attempt + " error=" + e);
@@ -542,11 +605,11 @@ public class mytest implements IXposedHookLoadPackage {
                                 pendingIntentRecord,
                                 retryArgs,
                                 classLoader,
-                                userId,
+                                retryUserId,
                                 attempt + 1,
                                 PENDING_INTENT_SECOND_RETRY_DELAY_MS);
                     } else {
-                        startOriginalActivityIntent(pendingIntentRecord, retryArgs, classLoader, userId);
+                        startOriginalActivityIntent(pendingIntentRecord, retryArgs, classLoader, retryUserId);
                     }
                 } finally {
                     retryingPendingIntent.remove();
@@ -572,9 +635,16 @@ public class mytest implements IXposedHookLoadPackage {
 
     private Object[] preparePendingIntentSendArgs(Object pendingIntentRecord, Object[] args, Member method) {
         Object[] retryArgs = args == null ? new Object[0] : args.clone();
-        applyBackgroundActivityStartOptions(retryArgs, method);
-        applyBackgroundActivityStartToken(pendingIntentRecord, retryArgs, method);
+        applyPendingIntentSendArgs(pendingIntentRecord, retryArgs, method);
         return retryArgs;
+    }
+
+    private void applyPendingIntentSendArgs(Object pendingIntentRecord, Object[] args, Member method) {
+        if (args == null) {
+            return;
+        }
+        applyBackgroundActivityStartOptions(args, method);
+        applyBackgroundActivityStartToken(pendingIntentRecord, args, method);
     }
 
     private void applyBackgroundActivityStartOptions(Object[] args, Member method) {
@@ -690,7 +760,7 @@ public class mytest implements IXposedHookLoadPackage {
     }
 
     private boolean shouldRetryPendingIntentAfterOriginalSend(WakeRequest wakeRequest, Object result) {
-        return wakeRequest != null && wakeRequest.enabledPackage;
+        return wakeRequest != null && wakeRequest.enabledPackage && isStartFailureResult(result);
     }
 
     private Object getHookResultSafely(XC_MethodHook.MethodHookParam param) {
