@@ -14,7 +14,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="(冰箱等)停用app后,依旧可以收到Mipush消息,目前版本需要手动打开app再点击通知栏进入详情..." />
+            android:value="在收到MIPush消息后自动解冻软件并打开消息。" />
         <meta-data
             android:name="xposedminversion"
             android:value="30" />
