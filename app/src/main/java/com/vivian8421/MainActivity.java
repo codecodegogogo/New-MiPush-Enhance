@@ -6,13 +6,12 @@ import android.content.ComponentName;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.widget.CompoundButton;
-import android.widget.Switch;
 
 import com.vivian8421.mipushEnhance.R;
 
 public class MainActivity extends AppCompatActivity implements CompoundButton.OnCheckedChangeListener {
 
-    private Switch kgzm_sw;
+    private CompoundButton kgzm_sw;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -49,4 +48,3 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         return new ComponentName(MainActivity.this, "com.vivian8421.MainActivityAlias");
     }
 }
-
