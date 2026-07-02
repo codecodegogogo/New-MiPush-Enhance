@@ -6,7 +6,7 @@
 
 ---
 
-forked from [vivian8421/MiPush-Enhance](https://github.com/vivian8421/MiPush-Enhance)
+forked from vivian8421/MiPush-Enhance
 
 ## 功能
 
@@ -32,12 +32,20 @@ forked from [vivian8421/MiPush-Enhance](https://github.com/vivian8421/MiPush-Enh
 
 ## 部分原理
 
-模块主要 Hook 系统进程中的通知点击链路和 Activity 启动链路：
+- 一开始只做了“解冻”：点击通知时 hook PendingIntentRecord.sendInner，发现目标包被停用，就用 PackageManager.setApplicationEnabledSetting(... ENABLED ...) 把它启用，然后重放原来的 PendingIntent。
 
-- 监听 `PendingIntentRecord.sendInner`，只在识别到 MIPush 通知点击时处理，避免普通闹钟或后台任务误触发。
-- 解析通知 PendingIntent 和 MIPush payload 中的目标应用包名；如果应用处于停用/冻结状态，则通过系统 PackageManager 重新启用。
-- 解冻后重新发送原通知的 PendingIntent，让目标应用继续处理原本的通知点击事件。
-- 针对 Android 16 / HyperOS 中后台服务启动详情页可能被拦截的情况，会在最近一次通知点击窗口内由系统进程代为启动对应 Activity。
+  后来发现问题是：应用确实被唤醒了，但支付宝、抖音打不开详情页。日志里看到关键原因是 Android 16 / HyperOS 的后台启动限制：目标应用的 PushMessageHandler 在后台服务进程里启动详情页 Activity，被系统拦了，日志是 Background activity launch blocked。
+
+  中间试过几条路：
+
+  - 先试延迟 1-2 秒重发通知 PendingIntent，结果只是再次把消息交给应用，仍然会被后台启动限制拦。
+  - 又试解析 MiPush payload 里的跳转信息，尝试直接还原 intent_uri / class_name / notify_effect，但不同应用实现不一致，不够稳。
+  - 然后从日志里确认：通知点击已经进了目标应用的 push service，真正失败点是后续 startActivity 被系统挡住。
+  - 所以改成 hook 系统进程里的 startActivity / startActivityAsUser，在“刚刚发生通知点击”的短时间窗口内，如果目标应用后台服务要打开详情页，就由 system_server 代启动同一个 Intent。
+
+  之后又遇到误触发：支付宝没通知也会被唤醒。日志显示那不是通知，是支付宝自己的 ALARM_ACTION。于是把触发条件收紧：只处理 MiPush 通知点击 PendingIntent，排除闹钟/后台任务，同时保留 com.xiaomi.xmsf / PushMessageHandler / mipush_payload 这些特征。
+
+  最终链路就是：点击通知 -> 确认是 MiPush 点击 -> 解冻目标应用 -> 重发原通知 PendingIntent -> 目标应用处理消息 -> 如果后台启动详情页被系统拦截，就由系统进程代启动。
 
 ## 说明
 
