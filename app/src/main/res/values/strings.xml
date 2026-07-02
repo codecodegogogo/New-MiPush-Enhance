@@ -19,15 +19,4 @@
     <string name="about_title">关于</string>
     <string name="about_heading">New Mipush Enhance</string>
     <string name="about_body">这里可以写关于模块的说明、版本信息或使用注意事项。</string>
-    <string name="title_activity_main">MainActivity</string>
-    <!-- Strings used for fragments for navigation -->
-    <string name="first_fragment_label">First Fragment</string>
-    <string name="second_fragment_label">Second Fragment</string>
-    <string name="next">Next</string>
-    <string name="previous">Previous</string>
-
-    <string name="hello_first_fragment">Hello first fragment</string>
-    <string name="hello_second_fragment">Hello second fragment. Arg: %1$s</string>
-    <string name="title_activity_main1">MainActivity</string>
-    <string name="title_activity_main2">MainActivity</string>
 </resources>

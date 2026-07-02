@@ -5,11 +5,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.os.Build;
 import android.os.Bundle;
 import android.text.TextUtils;
-
-import androidx.annotation.RequiresApi;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -27,7 +24,6 @@ public class mytest implements IXposedHookLoadPackage {
     private static final String MODULE_PACKAGE = "com.vivian8421.mipushEnhance";
     private static Context systemContext;
 
-    @RequiresApi(api = Build.VERSION_CODES.KITKAT)
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam loadPackageParam) throws Throwable {
         hookMipushReceiverQuery(loadPackageParam);
