@@ -2,7 +2,9 @@
 
 一个用于增强小米推送通知体验的 Xposed / LSPosed 模块。
 
-本项目forked from [vivian8421/MiPush-Enhance](https://github.com/vivian8421/MiPush-Enhance)
+**本项目地址：https://github.com/codecodegogogo/New-MiPush-Enhance**
+
+**本项目forked from [vivian8421/MiPush-Enhance**](https://github.com/vivian8421/MiPush-Enhance)
 
 ## 功能
 

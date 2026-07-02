@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -44,6 +45,14 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
                 showRebootConfirmDialog();
             }
         });
+
+        View projectLink = findViewById(R.id.project_link_container);
+        projectLink.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                openProjectUrl();
+            }
+        });
     }
 
     @Override
@@ -70,6 +79,11 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
 
     private ComponentName getAliseComponentName(){
         return new ComponentName(MainActivity.this, "com.vivian8421.MainActivityAlias");
+    }
+
+    private void openProjectUrl() {
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(getString(R.string.project_url)));
+        startActivity(intent);
     }
 
     private void showRebootConfirmDialog() {
