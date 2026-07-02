@@ -5,11 +5,15 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.text.TextUtils;
 
+import java.lang.reflect.Member;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -29,6 +33,12 @@ public class mytest implements IXposedHookLoadPackage {
     private static final long DIRECT_ACTIVITY_FALLBACK_DELAY_MS = 2200L;
     private static final int MAX_PENDING_INTENT_RETRY_COUNT = 2;
     private static final int INTENT_SENDER_ACTIVITY = 2;
+    private static final int FLAG_ACTIVITY_SENDER = 1;
+    private static final int FLAG_BROADCAST_SENDER = 1 << 1;
+    private static final int FLAG_SERVICE_SENDER = 1 << 2;
+    private static final int FLAG_ALL_SENDERS = FLAG_ACTIVITY_SENDER
+            | FLAG_BROADCAST_SENDER
+            | FLAG_SERVICE_SENDER;
     private static final ThreadLocal<Boolean> retryingPendingIntent = new ThreadLocal<>();
     private static final ThreadLocal<List<WakeRequest>> pendingIntentWakeRequests = new ThreadLocal<>();
     private static Context systemContext;
@@ -93,10 +103,14 @@ public class mytest implements IXposedHookLoadPackage {
                     if (wakeRequest.enabledPackage) {
                         log("delay PendingIntent until target package is ready packages="
                                 + wakeRequest.packages + " userId=" + wakeRequest.userId);
-                        retryPendingIntentSend(param.thisObject, param.args, classLoader, wakeRequest.userId);
-                        scheduleOriginalActivityFallback(
+                        Object[] delayedArgs = preparePendingIntentSendArgs(
                                 param.thisObject,
                                 param.args,
+                                param.method);
+                        retryPendingIntentSend(param.thisObject, delayedArgs, classLoader, wakeRequest.userId);
+                        scheduleOriginalActivityFallback(
+                                param.thisObject,
+                                delayedArgs,
                                 classLoader,
                                 wakeRequest.userId,
                                 DIRECT_ACTIVITY_FALLBACK_DELAY_MS);
@@ -470,6 +484,121 @@ public class mytest implements IXposedHookLoadPackage {
         }
     }
 
+    private Object[] preparePendingIntentSendArgs(Object pendingIntentRecord, Object[] args, Member method) {
+        Object[] retryArgs = args == null ? new Object[0] : args.clone();
+        applyBackgroundActivityStartOptions(retryArgs, method);
+        applyBackgroundActivityStartToken(pendingIntentRecord, retryArgs, method);
+        return retryArgs;
+    }
+
+    private void applyBackgroundActivityStartOptions(Object[] args, Member method) {
+        Bundle backgroundStartOptions = createBackgroundActivityStartOptionsBundle();
+        if (backgroundStartOptions == null) {
+            return;
+        }
+
+        Class<?>[] parameterTypes = getParameterTypes(method);
+        if (parameterTypes != null && parameterTypes.length == args.length) {
+            for (int i = 0; i < parameterTypes.length; i++) {
+                if (Bundle.class.equals(parameterTypes[i])) {
+                    args[i] = mergeOptionsBundle(args[i], backgroundStartOptions);
+                    return;
+                }
+            }
+        }
+
+        for (int i = args.length - 1; i >= 0; i--) {
+            if (args[i] instanceof Bundle) {
+                args[i] = mergeOptionsBundle(args[i], backgroundStartOptions);
+                return;
+            }
+        }
+    }
+
+    private Bundle mergeOptionsBundle(Object originalOptions, Bundle backgroundStartOptions) {
+        Bundle merged = originalOptions instanceof Bundle
+                ? new Bundle((Bundle) originalOptions)
+                : new Bundle();
+        merged.putAll(backgroundStartOptions);
+        return merged;
+    }
+
+    private Bundle createBackgroundActivityStartOptionsBundle() {
+        try {
+            Class<?> activityOptionsClass = Class.forName("android.app.ActivityOptions");
+            Object options = XposedHelpers.callStaticMethod(activityOptionsClass, "makeBasic");
+            int mode = getActivityOptionsBackgroundStartMode(activityOptionsClass);
+            XposedHelpers.callMethod(options, "setPendingIntentBackgroundActivityStartMode", mode);
+            return (Bundle) XposedHelpers.callMethod(options, "toBundle");
+        } catch (Throwable e) {
+            log("create BAL ActivityOptions failed: " + e);
+            return null;
+        }
+    }
+
+    private int getActivityOptionsBackgroundStartMode(Class<?> activityOptionsClass) {
+        String[] fieldNames = new String[]{
+                "MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS",
+                "MODE_BACKGROUND_ACTIVITY_START_ALLOWED",
+                "MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE"
+        };
+        for (String fieldName : fieldNames) {
+            try {
+                return XposedHelpers.getStaticIntField(activityOptionsClass, fieldName);
+            } catch (Throwable ignored) {
+            }
+        }
+        return 1;
+    }
+
+    private void applyBackgroundActivityStartToken(Object pendingIntentRecord, Object[] args, Member method) {
+        int tokenIndex = findFirstBinderParameterIndex(args, method);
+        if (tokenIndex < 0) {
+            return;
+        }
+
+        Object token = args[tokenIndex];
+        if (!(token instanceof IBinder)) {
+            token = new Binder();
+            args[tokenIndex] = token;
+        }
+
+        try {
+            XposedHelpers.callMethod(
+                    pendingIntentRecord,
+                    "setAllowBgActivityStarts",
+                    token,
+                    FLAG_ALL_SENDERS);
+        } catch (Throwable e) {
+            log("setAllowBgActivityStarts failed: " + e);
+        }
+    }
+
+    private int findFirstBinderParameterIndex(Object[] args, Member method) {
+        Class<?>[] parameterTypes = getParameterTypes(method);
+        if (parameterTypes != null && parameterTypes.length == args.length) {
+            for (int i = 0; i < parameterTypes.length; i++) {
+                if (IBinder.class.equals(parameterTypes[i])) {
+                    return i;
+                }
+            }
+        }
+
+        for (int i = 0; i < args.length; i++) {
+            if (args[i] instanceof IBinder) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private Class<?>[] getParameterTypes(Member method) {
+        if (method instanceof Method) {
+            return ((Method) method).getParameterTypes();
+        }
+        return null;
+    }
+
     private boolean isStartFailureResult(Object result) {
         return result instanceof Integer && ((Integer) result) < 0;
     }
@@ -548,16 +677,35 @@ public class mytest implements IXposedHookLoadPackage {
         retryIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             Object userHandle = createUserHandle(classLoader, userId);
+            Bundle options = createBackgroundActivityStartOptionsBundle();
             if (userHandle != null) {
-                XposedHelpers.callMethod(context, "startActivityAsUser", retryIntent, userHandle);
+                if (!startActivityAsUserWithOptions(context, retryIntent, options, userHandle)) {
+                    XposedHelpers.callMethod(context, "startActivityAsUser", retryIntent, userHandle);
+                }
             } else {
-                context.startActivity(retryIntent);
+                if (options != null) {
+                    context.startActivity(retryIntent, options);
+                } else {
+                    context.startActivity(retryIntent);
+                }
             }
             log("started original notification activity intent fallback userId=" + userId
                     + " intent=" + retryIntent);
             return true;
         } catch (Throwable e) {
             log("start original notification activity intent fallback failed: " + e);
+            return false;
+        }
+    }
+
+    private boolean startActivityAsUserWithOptions(Context context, Intent intent, Bundle options, Object userHandle) {
+        if (options == null || userHandle == null) {
+            return false;
+        }
+        try {
+            XposedHelpers.callMethod(context, "startActivityAsUser", intent, options, userHandle);
+            return true;
+        } catch (Throwable ignored) {
             return false;
         }
     }
