@@ -6,6 +6,10 @@
     <string name="scope_card_title">LSPosed / Xposed 配置</string>
     <string name="scope_card_summary">请在模块作用域中勾选系统框架和小米服务框架后重启手机。</string>
     <string name="reboot_phone">重启手机</string>
+    <string name="reboot_confirm_title">是否重启</string>
+    <string name="reboot_confirm_message">重启手机后，模块作用域设置才会完整生效。</string>
+    <string name="dialog_yes">是</string>
+    <string name="dialog_no">否</string>
     <string name="reboot_failed_title">无法自动重启</string>
     <string name="reboot_failed_message">没有 Root 权限，需要手动重启手机。</string>
     <string name="dialog_ok">知道了</string>
