@@ -30,7 +30,7 @@ public class mytest implements IXposedHookLoadPackage {
     private static final String MODULE_PACKAGE = "com.vivian8421.mipushEnhance";
     private static final long PENDING_INTENT_RETRY_DELAY_MS = 1600L;
     private static final long PENDING_INTENT_SECOND_RETRY_DELAY_MS = 900L;
-    private static final long DIRECT_ACTIVITY_FALLBACK_DELAY_MS = 2200L;
+    private static final long RECENT_NOTIFICATION_LAUNCH_WINDOW_MS = 10000L;
     private static final int MAX_PENDING_INTENT_RETRY_COUNT = 2;
     private static final int INTENT_SENDER_ACTIVITY = 2;
     private static final int FLAG_ACTIVITY_SENDER = 1;
@@ -39,8 +39,13 @@ public class mytest implements IXposedHookLoadPackage {
     private static final int FLAG_ALL_SENDERS = FLAG_ACTIVITY_SENDER
             | FLAG_BROADCAST_SENDER
             | FLAG_SERVICE_SENDER;
+    private static final int SYSTEM_UID = 1000;
     private static final ThreadLocal<Boolean> retryingPendingIntent = new ThreadLocal<>();
+    private static final ThreadLocal<Boolean> startingActivityFallback = new ThreadLocal<>();
     private static final ThreadLocal<List<WakeRequest>> pendingIntentWakeRequests = new ThreadLocal<>();
+    private static final ThreadLocal<List<ActivityStartRequest>> activityStartRequests = new ThreadLocal<>();
+    private static final Object recentNotificationLaunchLock = new Object();
+    private static final List<RecentNotificationLaunch> recentNotificationLaunches = new ArrayList<>();
     private static Context systemContext;
 
     @Override
@@ -99,6 +104,9 @@ public class mytest implements IXposedHookLoadPackage {
                     if (isRetryingPendingIntent()) {
                         return;
                     }
+                    if (!isSystemOrSystemUiSender(classLoader)) {
+                        return;
+                    }
                     WakeRequest wakeRequest = wakePackagesBeforeLaunch(param.thisObject, param.args, classLoader);
                     if (wakeRequest.enabledPackage) {
                         log("delay PendingIntent until target package is ready packages="
@@ -107,13 +115,8 @@ public class mytest implements IXposedHookLoadPackage {
                                 param.thisObject,
                                 param.args,
                                 param.method);
+                        rememberNotificationLaunch(wakeRequest.packages, wakeRequest.userId);
                         retryPendingIntentSend(param.thisObject, delayedArgs, classLoader, wakeRequest.userId);
-                        scheduleOriginalActivityFallback(
-                                param.thisObject,
-                                delayedArgs,
-                                classLoader,
-                                wakeRequest.userId,
-                                DIRECT_ACTIVITY_FALLBACK_DELAY_MS);
                         param.setResult(0);
                         return;
                     }
@@ -130,13 +133,8 @@ public class mytest implements IXposedHookLoadPackage {
                     if (shouldRetryPendingIntentAfterOriginalSend(wakeRequest, result)) {
                         log("retry PendingIntent for packages=" + wakeRequest.packages
                                 + " userId=" + wakeRequest.userId + " originalResult=" + result);
+                        rememberNotificationLaunch(wakeRequest.packages, wakeRequest.userId);
                         retryPendingIntentSend(param.thisObject, param.args, classLoader, wakeRequest.userId);
-                        scheduleOriginalActivityFallback(
-                                param.thisObject,
-                                param.args,
-                                classLoader,
-                                wakeRequest.userId,
-                                DIRECT_ACTIVITY_FALLBACK_DELAY_MS);
                     }
                 }
             });
@@ -161,7 +159,35 @@ public class mytest implements IXposedHookLoadPackage {
             XposedBridge.hookAllMethods(serviceClass, "startActivityAsUser", new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                    wakePackagesBeforeLaunch(param.thisObject, param.args, classLoader);
+                    if (isStartingActivityFallback()) {
+                        return;
+                    }
+                    ActivityStartRequest request = createActivityStartRequest(param.args, classLoader);
+                    if (request != null
+                            && isRecentNotificationLaunch(request.packageName, request.userId)) {
+                        wakePackagesBeforeLaunch(param.thisObject, param.args, classLoader);
+                        pushActivityStartRequest(request);
+                    } else {
+                        pushActivityStartRequest(null);
+                    }
+                }
+
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    if (isStartingActivityFallback()) {
+                        return;
+                    }
+                    ActivityStartRequest request = popActivityStartRequest();
+                    Object result = getHookResultSafely(param);
+                    if (request != null
+                            && request.intent != null
+                            && isStartFailureResult(result)
+                            && isRecentNotificationLaunch(request.packageName, request.userId)) {
+                        log("retry blocked notification activity start package="
+                                + request.packageName + " userId=" + request.userId
+                                + " result=" + result);
+                        startActivityIntentFallback(request.intent, classLoader, request.userId);
+                    }
                 }
             });
             log(className + ".startActivityAsUser hook installed");
@@ -186,6 +212,49 @@ public class mytest implements IXposedHookLoadPackage {
             }
         }
         return new WakeRequest(enabledPackage, packages, userId);
+    }
+
+    private ActivityStartRequest createActivityStartRequest(Object[] args, ClassLoader classLoader) {
+        Intent intent = getFillInIntentFromArgs(args);
+        if (intent == null) {
+            return null;
+        }
+
+        String packageName = getPackageNameFromIntent(intent, classLoader);
+        if (TextUtils.isEmpty(packageName)) {
+            return null;
+        }
+        return new ActivityStartRequest(new Intent(intent), packageName, readUserIdFromArgs(args, 0));
+    }
+
+    private String getPackageNameFromIntent(Intent intent, ClassLoader classLoader) {
+        if (intent == null) {
+            return null;
+        }
+
+        ComponentName componentName = intent.getComponent();
+        if (componentName != null) {
+            return componentName.getPackageName();
+        }
+
+        String packageName = intent.getPackage();
+        if (!TextUtils.isEmpty(packageName)) {
+            return packageName;
+        }
+
+        Context context = getSystemContext(classLoader);
+        if (context == null) {
+            return null;
+        }
+
+        try {
+            ResolveInfo resolveInfo = context.getPackageManager().resolveActivity(intent, 0);
+            if (resolveInfo != null && resolveInfo.activityInfo != null) {
+                return resolveInfo.activityInfo.packageName;
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     private void collectPackagesFromArgs(Object[] args, Set<String> packages) {
@@ -413,6 +482,23 @@ public class mytest implements IXposedHookLoadPackage {
         return getIntFieldSafely(sourceObject, "userId", 0);
     }
 
+    private int readUserIdFromArgs(Object[] args, int defaultValue) {
+        if (args == null) {
+            return defaultValue;
+        }
+
+        for (int i = args.length - 1; i >= 0; i--) {
+            Object arg = args[i];
+            if (arg instanceof Integer) {
+                int value = (Integer) arg;
+                if (value >= 0 && value < 1000) {
+                    return value;
+                }
+            }
+        }
+        return defaultValue;
+    }
+
     private void retryPendingIntentSend(
             final Object pendingIntentRecord,
             Object[] args,
@@ -603,37 +689,6 @@ public class mytest implements IXposedHookLoadPackage {
         return result instanceof Integer && ((Integer) result) < 0;
     }
 
-    private void scheduleOriginalActivityFallback(
-            final Object pendingIntentRecord,
-            Object[] args,
-            final ClassLoader classLoader,
-            final int userId,
-            long delayMs) {
-        final Object[] fallbackArgs = args == null ? new Object[0] : args.clone();
-        Handler handler = getMainHandler();
-        Runnable fallbackRunnable = new Runnable() {
-            @Override
-            public void run() {
-                startOriginalActivityIntent(pendingIntentRecord, fallbackArgs, classLoader, userId);
-            }
-        };
-
-        if (handler != null) {
-            handler.postDelayed(fallbackRunnable, delayMs);
-        } else {
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        Thread.sleep(delayMs);
-                    } catch (InterruptedException ignored) {
-                    }
-                    fallbackRunnable.run();
-                }
-            }).start();
-        }
-    }
-
     private boolean shouldRetryPendingIntentAfterOriginalSend(WakeRequest wakeRequest, Object result) {
         return wakeRequest != null && wakeRequest.enabledPackage;
     }
@@ -695,6 +750,38 @@ public class mytest implements IXposedHookLoadPackage {
         } catch (Throwable e) {
             log("start original notification activity intent fallback failed: " + e);
             return false;
+        }
+    }
+
+    private boolean startActivityIntentFallback(Intent intent, ClassLoader classLoader, int userId) {
+        Context context = getSystemContext(classLoader);
+        if (context == null || intent == null) {
+            return false;
+        }
+
+        Intent retryIntent = new Intent(intent);
+        retryIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startingActivityFallback.set(true);
+        try {
+            Object userHandle = createUserHandle(classLoader, userId);
+            Bundle options = createBackgroundActivityStartOptionsBundle();
+            if (userHandle != null) {
+                if (!startActivityAsUserWithOptions(context, retryIntent, options, userHandle)) {
+                    XposedHelpers.callMethod(context, "startActivityAsUser", retryIntent, userHandle);
+                }
+            } else if (options != null) {
+                context.startActivity(retryIntent, options);
+            } else {
+                context.startActivity(retryIntent);
+            }
+            log("started blocked notification activity fallback userId=" + userId
+                    + " intent=" + retryIntent);
+            return true;
+        } catch (Throwable e) {
+            log("start blocked notification activity fallback failed: " + e);
+            return false;
+        } finally {
+            startingActivityFallback.remove();
         }
     }
 
@@ -785,6 +872,84 @@ public class mytest implements IXposedHookLoadPackage {
         return retrying != null && retrying;
     }
 
+    private boolean isSystemOrSystemUiSender(ClassLoader classLoader) {
+        try {
+            int callingUid = Binder.getCallingUid();
+            if (callingUid == SYSTEM_UID) {
+                return true;
+            }
+
+            Context context = getSystemContext(classLoader);
+            if (context == null) {
+                return false;
+            }
+
+            String[] packageNames = context.getPackageManager().getPackagesForUid(callingUid);
+            if (packageNames == null) {
+                return false;
+            }
+
+            for (String packageName : packageNames) {
+                if ("com.android.systemui".equals(packageName)
+                        || "com.miui.systemui".equals(packageName)
+                        || (!TextUtils.isEmpty(packageName)
+                        && packageName.toLowerCase(Locale.US).contains("systemui"))) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    private boolean isStartingActivityFallback() {
+        Boolean starting = startingActivityFallback.get();
+        return starting != null && starting;
+    }
+
+    private void rememberNotificationLaunch(Set<String> packages, int userId) {
+        if (packages == null || packages.isEmpty()) {
+            return;
+        }
+
+        long expiresAt = System.currentTimeMillis() + RECENT_NOTIFICATION_LAUNCH_WINDOW_MS;
+        synchronized (recentNotificationLaunchLock) {
+            pruneRecentNotificationLaunchesLocked(System.currentTimeMillis());
+            for (String packageName : packages) {
+                if (!shouldSkipPackage(packageName)) {
+                    recentNotificationLaunches.add(
+                            new RecentNotificationLaunch(packageName, userId, expiresAt));
+                }
+            }
+        }
+    }
+
+    private boolean isRecentNotificationLaunch(String packageName, int userId) {
+        if (TextUtils.isEmpty(packageName)) {
+            return false;
+        }
+
+        long now = System.currentTimeMillis();
+        synchronized (recentNotificationLaunchLock) {
+            pruneRecentNotificationLaunchesLocked(now);
+            for (RecentNotificationLaunch launch : recentNotificationLaunches) {
+                if (packageName.equals(launch.packageName)
+                        && (launch.userId == userId || launch.userId < 0 || userId < 0)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void pruneRecentNotificationLaunchesLocked(long now) {
+        for (int i = recentNotificationLaunches.size() - 1; i >= 0; i--) {
+            if (recentNotificationLaunches.get(i).expiresAt < now) {
+                recentNotificationLaunches.remove(i);
+            }
+        }
+    }
+
     private void pushPendingIntentWakeRequest(WakeRequest wakeRequest) {
         List<WakeRequest> wakeRequests = pendingIntentWakeRequests.get();
         if (wakeRequests == null) {
@@ -805,6 +970,28 @@ public class mytest implements IXposedHookLoadPackage {
             pendingIntentWakeRequests.remove();
         }
         return wakeRequest;
+    }
+
+    private void pushActivityStartRequest(ActivityStartRequest request) {
+        List<ActivityStartRequest> requests = activityStartRequests.get();
+        if (requests == null) {
+            requests = new ArrayList<>();
+            activityStartRequests.set(requests);
+        }
+        requests.add(request);
+    }
+
+    private ActivityStartRequest popActivityStartRequest() {
+        List<ActivityStartRequest> requests = activityStartRequests.get();
+        if (requests == null || requests.isEmpty()) {
+            return null;
+        }
+
+        ActivityStartRequest request = requests.remove(requests.size() - 1);
+        if (requests.isEmpty()) {
+            activityStartRequests.remove();
+        }
+        return request;
     }
 
     private Object getPackageManagerService(ClassLoader classLoader) {
@@ -876,6 +1063,30 @@ public class mytest implements IXposedHookLoadPackage {
             this.enabledPackage = enabledPackage;
             this.packages = packages;
             this.userId = userId;
+        }
+    }
+
+    private static class ActivityStartRequest {
+        final Intent intent;
+        final String packageName;
+        final int userId;
+
+        ActivityStartRequest(Intent intent, String packageName, int userId) {
+            this.intent = intent;
+            this.packageName = packageName;
+            this.userId = userId;
+        }
+    }
+
+    private static class RecentNotificationLaunch {
+        final String packageName;
+        final int userId;
+        final long expiresAt;
+
+        RecentNotificationLaunch(String packageName, int userId, long expiresAt) {
+            this.packageName = packageName;
+            this.userId = userId;
+            this.expiresAt = expiresAt;
         }
     }
 }
