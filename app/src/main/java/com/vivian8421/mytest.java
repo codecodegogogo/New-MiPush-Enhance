@@ -57,6 +57,8 @@ public class mytest implements IXposedHookLoadPackage {
         if ("android".equals(loadPackageParam.packageName)) {
             hookPendingIntentWake(loadPackageParam.classLoader);
             hookActivityStartWake(loadPackageParam.classLoader);
+            hookServiceStartWake(loadPackageParam.classLoader);
+            hookBroadcastWake(loadPackageParam.classLoader);
         }
     }
 
@@ -154,6 +156,14 @@ public class mytest implements IXposedHookLoadPackage {
         hookStartActivityClass("com.android.server.am.ActivityManagerService", classLoader);
     }
 
+    private void hookServiceStartWake(final ClassLoader classLoader) {
+        hookStartServiceClass("com.android.server.am.ActivityManagerService", classLoader);
+    }
+
+    private void hookBroadcastWake(final ClassLoader classLoader) {
+        hookBroadcastClass("com.android.server.am.ActivityManagerService", classLoader);
+    }
+
     private void hookStartActivityClass(String className, final ClassLoader classLoader) {
         Class<?> serviceClass = findClassSafely(className, classLoader);
         if (serviceClass == null) {
@@ -201,8 +211,79 @@ public class mytest implements IXposedHookLoadPackage {
         }
     }
 
+    private void hookStartServiceClass(String className, final ClassLoader classLoader) {
+        Class<?> serviceClass = findClassSafely(className, classLoader);
+        if (serviceClass == null) {
+            return;
+        }
+
+        try {
+            XposedBridge.hookAllMethods(serviceClass, "startService", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    WakeRequest wakeRequest = wakePackagesBeforeLaunch(
+                            param.thisObject,
+                            param.args,
+                            classLoader);
+                    if (wakeRequest.enabledPackage) {
+                        waitPackagesReady(wakeRequest.packages, wakeRequest.userId, classLoader);
+                        rememberNotificationLaunch(wakeRequest.packages, wakeRequest.userId);
+                        log("enabled package before startService packages="
+                                + wakeRequest.packages + " userId=" + wakeRequest.userId);
+                    }
+                }
+            });
+            log(className + ".startService hook installed");
+        } catch (Throwable e) {
+            log(className + ".startService hook failed: " + e);
+        }
+    }
+
+    private void hookBroadcastClass(String className, final ClassLoader classLoader) {
+        Class<?> serviceClass = findClassSafely(className, classLoader);
+        if (serviceClass == null) {
+            return;
+        }
+
+        try {
+            XposedBridge.hookAllMethods(serviceClass, "broadcastIntentWithFeature", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    WakeRequest wakeRequest = wakePackagesBeforeLaunch(
+                            param.thisObject,
+                            param.args,
+                            classLoader);
+                    if (wakeRequest.enabledPackage) {
+                        waitPackagesReady(wakeRequest.packages, wakeRequest.userId, classLoader);
+                        rememberNotificationLaunch(wakeRequest.packages, wakeRequest.userId);
+                        log("enabled package before broadcastIntentWithFeature packages="
+                                + wakeRequest.packages + " userId=" + wakeRequest.userId);
+                    }
+                }
+            });
+            XposedBridge.hookAllMethods(serviceClass, "broadcastIntent", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    WakeRequest wakeRequest = wakePackagesBeforeLaunch(
+                            param.thisObject,
+                            param.args,
+                            classLoader);
+                    if (wakeRequest.enabledPackage) {
+                        waitPackagesReady(wakeRequest.packages, wakeRequest.userId, classLoader);
+                        rememberNotificationLaunch(wakeRequest.packages, wakeRequest.userId);
+                        log("enabled package before broadcastIntent packages="
+                                + wakeRequest.packages + " userId=" + wakeRequest.userId);
+                    }
+                }
+            });
+            log(className + ".broadcastIntent hooks installed");
+        } catch (Throwable e) {
+            log(className + ".broadcastIntent hook failed: " + e);
+        }
+    }
+
     private WakeRequest wakePackagesBeforeLaunch(Object sourceObject, Object[] args, ClassLoader classLoader) {
-        int userId = readUserId(sourceObject);
+        int userId = readUserIdFromArgs(args, readUserId(sourceObject));
         Set<String> packages = new HashSet<>();
         collectPackagesFromArgs(args, packages);
         collectPackagesFromPendingIntentKey(sourceObject, packages);
@@ -340,6 +421,8 @@ public class mytest implements IXposedHookLoadPackage {
                     collectPackagesFromIntent((Intent) value, packages);
                 } else if (value instanceof Bundle) {
                     collectPackagesFromBundle((Bundle) value, packages, depth + 1);
+                } else if (value instanceof byte[] && isPayloadExtraKey(key)) {
+                    collectPackageNamesFromBytes((byte[]) value, packages);
                 } else if (isPackageExtraKey(key)) {
                     collectPackageValue(value, packages);
                 }
@@ -357,7 +440,199 @@ public class mytest implements IXposedHookLoadPackage {
             }
         } else if (value instanceof CharSequence) {
             addPackage(value.toString(), packages);
+        } else if (value instanceof byte[]) {
+            collectPackageNamesFromBytes((byte[]) value, packages);
         }
+    }
+
+    private void collectPackageNamesFromBytes(byte[] bytes, Set<String> packages) {
+        if (bytes == null || bytes.length == 0) {
+            return;
+        }
+
+        int packageCount = packages.size();
+        addPackage(readThriftStringField(bytes, 6), packages);
+        if (packages.size() > packageCount) {
+            return;
+        }
+
+        StringBuilder token = new StringBuilder();
+        for (byte item : bytes) {
+            int value = item & 0xff;
+            if (isPackageNameByte(value)) {
+                token.append((char) value);
+            } else {
+                collectPackageNameToken(token, packages);
+            }
+        }
+        collectPackageNameToken(token, packages);
+    }
+
+    private String readThriftStringField(byte[] bytes, int targetFieldId) {
+        try {
+            int offset = 0;
+            while (offset < bytes.length) {
+                int type = bytes[offset++] & 0xff;
+                if (type == 0) {
+                    return null;
+                }
+                if (offset + 2 > bytes.length) {
+                    return null;
+                }
+                int fieldId = readI16(bytes, offset);
+                offset += 2;
+                if (fieldId == targetFieldId && type == 11) {
+                    return readThriftString(bytes, offset);
+                }
+                offset = skipThriftValue(bytes, offset, type);
+                if (offset < 0) {
+                    return null;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private int skipThriftValue(byte[] bytes, int offset, int type) {
+        switch (type) {
+            case 2:
+            case 3:
+                return offset + 1 <= bytes.length ? offset + 1 : -1;
+            case 4:
+            case 10:
+                return offset + 8 <= bytes.length ? offset + 8 : -1;
+            case 6:
+                return offset + 2 <= bytes.length ? offset + 2 : -1;
+            case 8:
+                return offset + 4 <= bytes.length ? offset + 4 : -1;
+            case 11:
+                return skipThriftBinary(bytes, offset);
+            case 12:
+                return skipThriftStruct(bytes, offset);
+            case 13:
+                return skipThriftMap(bytes, offset);
+            case 14:
+            case 15:
+                return skipThriftListOrSet(bytes, offset);
+            default:
+                return -1;
+        }
+    }
+
+    private int skipThriftStruct(byte[] bytes, int offset) {
+        while (offset < bytes.length) {
+            int type = bytes[offset++] & 0xff;
+            if (type == 0) {
+                return offset;
+            }
+            if (offset + 2 > bytes.length) {
+                return -1;
+            }
+            offset += 2;
+            offset = skipThriftValue(bytes, offset, type);
+            if (offset < 0) {
+                return -1;
+            }
+        }
+        return -1;
+    }
+
+    private int skipThriftMap(byte[] bytes, int offset) {
+        if (offset + 6 > bytes.length) {
+            return -1;
+        }
+        int keyType = bytes[offset++] & 0xff;
+        int valueType = bytes[offset++] & 0xff;
+        int size = readI32(bytes, offset);
+        offset += 4;
+        if (size < 0) {
+            return -1;
+        }
+        for (int i = 0; i < size; i++) {
+            offset = skipThriftValue(bytes, offset, keyType);
+            if (offset < 0) {
+                return -1;
+            }
+            offset = skipThriftValue(bytes, offset, valueType);
+            if (offset < 0) {
+                return -1;
+            }
+        }
+        return offset;
+    }
+
+    private int skipThriftListOrSet(byte[] bytes, int offset) {
+        if (offset + 5 > bytes.length) {
+            return -1;
+        }
+        int itemType = bytes[offset++] & 0xff;
+        int size = readI32(bytes, offset);
+        offset += 4;
+        if (size < 0) {
+            return -1;
+        }
+        for (int i = 0; i < size; i++) {
+            offset = skipThriftValue(bytes, offset, itemType);
+            if (offset < 0) {
+                return -1;
+            }
+        }
+        return offset;
+    }
+
+    private int skipThriftBinary(byte[] bytes, int offset) {
+        if (offset + 4 > bytes.length) {
+            return -1;
+        }
+        int length = readI32(bytes, offset);
+        offset += 4;
+        if (length < 0 || offset + length > bytes.length) {
+            return -1;
+        }
+        return offset + length;
+    }
+
+    private String readThriftString(byte[] bytes, int offset) {
+        if (offset + 4 > bytes.length) {
+            return null;
+        }
+        int length = readI32(bytes, offset);
+        offset += 4;
+        if (length <= 0 || offset + length > bytes.length) {
+            return null;
+        }
+        return new String(bytes, offset, length);
+    }
+
+    private int readI16(byte[] bytes, int offset) {
+        return ((bytes[offset] & 0xff) << 8)
+                | (bytes[offset + 1] & 0xff);
+    }
+
+    private int readI32(byte[] bytes, int offset) {
+        return ((bytes[offset] & 0xff) << 24)
+                | ((bytes[offset + 1] & 0xff) << 16)
+                | ((bytes[offset + 2] & 0xff) << 8)
+                | (bytes[offset + 3] & 0xff);
+    }
+
+    private boolean isPackageNameByte(int value) {
+        return (value >= 'a' && value <= 'z')
+                || (value >= 'A' && value <= 'Z')
+                || (value >= '0' && value <= '9')
+                || value == '.'
+                || value == '_';
+    }
+
+    private void collectPackageNameToken(StringBuilder token, Set<String> packages) {
+        if (token.length() == 0) {
+            return;
+        }
+
+        String value = token.toString();
+        token.setLength(0);
+        addPackage(value, packages);
     }
 
     private boolean isPackageExtraKey(String key) {
@@ -370,6 +645,16 @@ public class mytest implements IXposedHookLoadPackage {
                 || lower.contains("target")
                 || lower.equals("app")
                 || lower.equals("app_id");
+    }
+
+    private boolean isPayloadExtraKey(String key) {
+        if (key == null) {
+            return false;
+        }
+        String lower = key.toLowerCase(Locale.US);
+        return lower.contains("payload")
+                || lower.contains("mipush")
+                || lower.contains("push");
     }
 
     private void addPackage(String packageName, Set<String> packages) {
