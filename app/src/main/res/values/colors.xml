@@ -5,7 +5,6 @@
     <color name="brand_blue_deep">#FF2F8DB3</color>
     <color name="brand_teal">#FF63C9BE</color>
     <color name="brand_blue_soft">#FFE7F6FB</color>
-    <color name="brand_blue_overlay">#33FFFFFF</color>
     <color name="settings_background">#FFF6F6F7</color>
     <color name="settings_card">#FFFFFFFF</color>
     <color name="settings_text_primary">#FF111111</color>

@@ -1,9 +1,14 @@
 <resources>
     <string name="app_name">New Mipush Enhance</string>
-    <string name="header_label">MI PUSH MODULE</string>
-    <string name="about_button">I</string>
+    <string name="app_title_line1">New</string>
+    <string name="app_title_line2">Mipush Enhance</string>
+    <string name="about_button">i</string>
     <string name="scope_card_title">LSPosed / Xposed 配置</string>
     <string name="scope_card_summary">请在模块作用域中勾选系统框架和小米服务框架后重启手机。</string>
+    <string name="reboot_phone">重启手机</string>
+    <string name="reboot_failed_title">无法自动重启</string>
+    <string name="reboot_failed_message">没有 Root 权限，需要手动重启手机。</string>
+    <string name="dialog_ok">知道了</string>
     <string name="display_section_title">显示设置</string>
     <string name="hide_launcher_title">隐藏桌面图标</string>
     <string name="hide_launcher_summary">关闭桌面入口，仍可从 LSPosed / Xposed 模块页打开设置。</string>

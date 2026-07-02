@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.CompoundButton;
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.vivian8421.mipushEnhance.R;
 
 public class MainActivity extends AppCompatActivity implements CompoundButton.OnCheckedChangeListener {
@@ -28,6 +29,14 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
             @Override
             public void onClick(View view) {
                 startActivity(new Intent(MainActivity.this, AboutActivity.class));
+            }
+        });
+
+        View rebootButton = findViewById(R.id.reboot_btn);
+        rebootButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                rebootPhone();
             }
         });
     }
@@ -56,5 +65,35 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
 
     private ComponentName getAliseComponentName(){
         return new ComponentName(MainActivity.this, "com.vivian8421.MainActivityAlias");
+    }
+
+    private void rebootPhone() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Process process = Runtime.getRuntime().exec(new String[]{"su", "-c", "reboot"});
+                    int exitCode = process.waitFor();
+                    if (exitCode != 0) {
+                        showRebootFailedDialog();
+                    }
+                } catch (Exception e) {
+                    showRebootFailedDialog();
+                }
+            }
+        }).start();
+    }
+
+    private void showRebootFailedDialog() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                new MaterialAlertDialogBuilder(MainActivity.this)
+                        .setTitle(R.string.reboot_failed_title)
+                        .setMessage(R.string.reboot_failed_message)
+                        .setPositiveButton(R.string.dialog_ok, null)
+                        .show();
+            }
+        });
     }
 }
