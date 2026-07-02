@@ -3,8 +3,10 @@ package com.vivian8421;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.content.ComponentName;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.view.View;
 import android.widget.CompoundButton;
 
 import com.vivian8421.mipushEnhance.R;
@@ -20,6 +22,14 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         kgzm_sw = findViewById(R.id.kgzm_sw);
         kgzm_sw.setChecked(isLauncherIconHidden());
         kgzm_sw.setOnCheckedChangeListener(this);
+
+        View aboutButton = findViewById(R.id.about_btn);
+        aboutButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                startActivity(new Intent(MainActivity.this, AboutActivity.class));
+            }
+        });
     }
 
     @Override

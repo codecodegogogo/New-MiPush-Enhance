@@ -24,6 +24,8 @@
 
 
 <!--         这个activity可以被Xposed Installer启动-->
+        <activity android:name="com.vivian8421.AboutActivity" android:exported="false" />
+
         <activity android:label="@string/app_name" android:name="com.vivian8421.MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
