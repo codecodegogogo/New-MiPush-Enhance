@@ -34,10 +34,10 @@ forked from [vivian8421/MiPush-Enhance](https://github.com/vivian8421/MiPush-Enh
 
 模块主要 Hook 系统进程中的通知点击链路和 Activity 启动链路：
 
-- 监听 `PendingIntentRecord.sendInner`，在通知被点击时解析目标应用包名。
-- 如果目标应用处于停用/冻结状态，则通过系统 PackageManager 将其重新启用。
-- 启用后补发原始 PendingIntent，避免只解冻但不打开通知页面。
-- 当 PendingIntent 重放仍失败时，尝试使用通知内保存的原始 Activity Intent 兜底启动。
+- 监听 `PendingIntentRecord.sendInner`，只在识别到 MIPush 通知点击时处理，避免普通闹钟或后台任务误触发。
+- 解析通知 PendingIntent 和 MIPush payload 中的目标应用包名；如果应用处于停用/冻结状态，则通过系统 PackageManager 重新启用。
+- 解冻后重新发送原通知的 PendingIntent，让目标应用继续处理原本的通知点击事件。
+- 针对 Android 16 / HyperOS 中后台服务启动详情页可能被拦截的情况，会在最近一次通知点击窗口内由系统进程代为启动对应 Activity。
 
 ## 说明
 
