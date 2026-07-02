@@ -17,18 +17,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK
+      - name: Set up JDK for Android SDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "11"
-          cache: gradle
+          java-version: "17"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-30" "build-tools;30.0.3"
+
+      - name: Set up JDK for Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+          cache: gradle
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
