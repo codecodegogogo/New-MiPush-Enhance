@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
@@ -15,9 +16,11 @@ import android.text.TextUtils;
 import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
@@ -497,6 +500,139 @@ public class mytest implements IXposedHookLoadPackage {
         } catch (Throwable ignored) {
         }
         return null;
+    }
+
+    private Map<String, String> readThriftStringMapEntries(byte[] bytes) {
+        Map<String, String> result = new HashMap<>();
+        if (bytes == null || bytes.length == 0) {
+            return result;
+        }
+
+        try {
+            scanThriftStructForStringMaps(bytes, 0, result, 0);
+        } catch (Throwable ignored) {
+        }
+        return result;
+    }
+
+    private int scanThriftStructForStringMaps(
+            byte[] bytes,
+            int offset,
+            Map<String, String> result,
+            int depth) {
+        if (depth > 8) {
+            return skipThriftStruct(bytes, offset);
+        }
+
+        while (offset < bytes.length) {
+            int type = bytes[offset++] & 0xff;
+            if (type == 0) {
+                return offset;
+            }
+            if (offset + 2 > bytes.length) {
+                return -1;
+            }
+            offset += 2;
+            offset = scanThriftValueForStringMaps(bytes, offset, type, result, depth + 1);
+            if (offset < 0) {
+                return -1;
+            }
+        }
+        return -1;
+    }
+
+    private int scanThriftValueForStringMaps(
+            byte[] bytes,
+            int offset,
+            int type,
+            Map<String, String> result,
+            int depth) {
+        if (depth > 8) {
+            return skipThriftValue(bytes, offset, type);
+        }
+
+        switch (type) {
+            case 12:
+                return scanThriftStructForStringMaps(bytes, offset, result, depth + 1);
+            case 13:
+                return scanThriftMapForStringMaps(bytes, offset, result, depth + 1);
+            case 14:
+            case 15:
+                return scanThriftListOrSetForStringMaps(bytes, offset, result, depth + 1);
+            default:
+                return skipThriftValue(bytes, offset, type);
+        }
+    }
+
+    private int scanThriftMapForStringMaps(
+            byte[] bytes,
+            int offset,
+            Map<String, String> result,
+            int depth) {
+        if (offset + 6 > bytes.length) {
+            return -1;
+        }
+
+        int keyType = bytes[offset++] & 0xff;
+        int valueType = bytes[offset++] & 0xff;
+        int size = readI32(bytes, offset);
+        offset += 4;
+        if (size < 0) {
+            return -1;
+        }
+
+        for (int i = 0; i < size; i++) {
+            if (keyType == 11 && valueType == 11) {
+                String key = readThriftString(bytes, offset);
+                offset = skipThriftBinary(bytes, offset);
+                if (offset < 0) {
+                    return -1;
+                }
+                String value = readThriftString(bytes, offset);
+                offset = skipThriftBinary(bytes, offset);
+                if (offset < 0) {
+                    return -1;
+                }
+                if (!TextUtils.isEmpty(key) && value != null) {
+                    result.put(key, value);
+                }
+            } else {
+                offset = scanThriftValueForStringMaps(bytes, offset, keyType, result, depth + 1);
+                if (offset < 0) {
+                    return -1;
+                }
+                offset = scanThriftValueForStringMaps(bytes, offset, valueType, result, depth + 1);
+                if (offset < 0) {
+                    return -1;
+                }
+            }
+        }
+        return offset;
+    }
+
+    private int scanThriftListOrSetForStringMaps(
+            byte[] bytes,
+            int offset,
+            Map<String, String> result,
+            int depth) {
+        if (offset + 5 > bytes.length) {
+            return -1;
+        }
+
+        int itemType = bytes[offset++] & 0xff;
+        int size = readI32(bytes, offset);
+        offset += 4;
+        if (size < 0) {
+            return -1;
+        }
+
+        for (int i = 0; i < size; i++) {
+            offset = scanThriftValueForStringMaps(bytes, offset, itemType, result, depth + 1);
+            if (offset < 0) {
+                return -1;
+            }
+        }
+        return offset;
     }
 
     private int skipThriftValue(byte[] bytes, int offset, int type) {
@@ -1115,7 +1251,12 @@ public class mytest implements IXposedHookLoadPackage {
         }
 
         Set<String> launchPackages = collectPendingIntentPackages(pendingIntentRecord, args, packages);
-        return startTargetPackageLaunchFallback(launchPackages, classLoader, userId, type);
+        Intent mipushJumpIntent = createMipushJumpIntentFallback(
+                pendingIntentRecord,
+                args,
+                launchPackages,
+                classLoader);
+        return startTargetPackageLaunchFallback(launchPackages, mipushJumpIntent, classLoader, userId, type);
     }
 
     private Set<String> collectPendingIntentPackages(
@@ -1133,6 +1274,7 @@ public class mytest implements IXposedHookLoadPackage {
 
     private boolean startTargetPackageLaunchFallback(
             Set<String> packages,
+            Intent mipushJumpIntent,
             ClassLoader classLoader,
             int userId,
             int pendingIntentType) {
@@ -1149,7 +1291,9 @@ public class mytest implements IXposedHookLoadPackage {
             return false;
         }
 
-        Intent launchIntent = packageManager.getLaunchIntentForPackage(packageName);
+        Intent launchIntent = mipushJumpIntent != null
+                ? new Intent(mipushJumpIntent)
+                : packageManager.getLaunchIntentForPackage(packageName);
         if (launchIntent == null) {
             log("skip package launch fallback because launch intent is null package="
                     + packageName + " type=" + pendingIntentType);
@@ -1183,6 +1327,188 @@ public class mytest implements IXposedHookLoadPackage {
         } finally {
             startingActivityFallback.remove();
         }
+    }
+
+    private Intent createMipushJumpIntentFallback(
+            Object pendingIntentRecord,
+            Object[] args,
+            Set<String> packages,
+            ClassLoader classLoader) {
+        Context context = getSystemContext(classLoader);
+        if (context == null || packages == null || packages.isEmpty()) {
+            return null;
+        }
+
+        PackageManager packageManager = context.getPackageManager();
+        String packageName = findLaunchableTargetPackage(packageManager, packages);
+        if (TextUtils.isEmpty(packageName)) {
+            return null;
+        }
+
+        byte[] payload = getMipushPayloadFromPendingIntent(pendingIntentRecord, args);
+        Intent intent = buildMipushJumpIntent(context, packageName, payload);
+        if (intent != null) {
+            log("resolved MiPush jump intent package=" + packageName + " intent=" + intent);
+        }
+        return intent;
+    }
+
+    private Intent buildMipushJumpIntent(Context context, String packageName, byte[] payload) {
+        if (payload == null || payload.length == 0) {
+            return null;
+        }
+
+        Map<String, String> extra = readThriftStringMapEntries(payload);
+        if (extra.isEmpty()) {
+            return null;
+        }
+
+        Intent intent = null;
+        String notifyEffect = getExtraValue(extra, "notify_effect");
+        String intentUri = getExtraValue(extra, "intent_uri");
+        String className = getExtraValue(extra, "class_name");
+        String intentFlag = getExtraValue(extra, "intent_flag");
+        String webUri = getExtraValue(extra, "web_uri");
+
+        if ("1".equals(notifyEffect) || "default".equalsIgnoreCase(notifyEffect)) {
+            intent = context.getPackageManager().getLaunchIntentForPackage(packageName);
+        } else if ("2".equals(notifyEffect)
+                || "intent".equalsIgnoreCase(notifyEffect)
+                || !TextUtils.isEmpty(intentUri)
+                || !TextUtils.isEmpty(className)) {
+            intent = buildMipushIntentJump(packageName, intentUri, className, intentFlag);
+        } else if ("3".equals(notifyEffect)
+                || "web".equalsIgnoreCase(notifyEffect)
+                || "web_page".equalsIgnoreCase(notifyEffect)
+                || !TextUtils.isEmpty(webUri)) {
+            intent = buildMipushWebJump(webUri);
+        }
+
+        if (intent == null) {
+            return null;
+        }
+
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (context.getPackageManager().resolveActivity(intent, 0) == null) {
+            log("resolved MiPush jump intent is not launchable package="
+                    + packageName + " extras=" + extra.keySet() + " intent=" + intent);
+            return null;
+        }
+        return intent;
+    }
+
+    private Intent buildMipushIntentJump(
+            String packageName,
+            String intentUri,
+            String className,
+            String intentFlag) {
+        Intent intent = null;
+        if (!TextUtils.isEmpty(intentUri)) {
+            try {
+                intent = Intent.parseUri(intentUri, Intent.URI_INTENT_SCHEME);
+                intent.setPackage(packageName);
+            } catch (Throwable e) {
+                log("parse MiPush intent_uri failed package=" + packageName + " error=" + e);
+                intent = null;
+            }
+        }
+
+        if (intent == null && !TextUtils.isEmpty(className)) {
+            String resolvedClassName = className.startsWith(".")
+                    ? packageName + className
+                    : className;
+            intent = new Intent();
+            intent.setComponent(new ComponentName(packageName, resolvedClassName));
+        }
+
+        if (intent != null && !TextUtils.isEmpty(intentFlag)) {
+            try {
+                intent.setFlags(Integer.parseInt(intentFlag));
+            } catch (Throwable e) {
+                log("parse MiPush intent_flag failed package=" + packageName + " error=" + e);
+            }
+        }
+        return intent;
+    }
+
+    private Intent buildMipushWebJump(String webUri) {
+        if (TextUtils.isEmpty(webUri)) {
+            return null;
+        }
+
+        String uri = webUri.trim();
+        if (!uri.startsWith("http://") && !uri.startsWith("https://")) {
+            uri = "http://" + uri;
+        }
+
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setData(Uri.parse(uri));
+        return intent;
+    }
+
+    private String getExtraValue(Map<String, String> extra, String key) {
+        if (extra == null || key == null) {
+            return null;
+        }
+        String value = extra.get(key);
+        if (value != null) {
+            return value;
+        }
+        for (Map.Entry<String, String> entry : extra.entrySet()) {
+            if (key.equalsIgnoreCase(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private byte[] getMipushPayloadFromPendingIntent(Object pendingIntentRecord, Object[] args) {
+        Object key = getObjectFieldSafely(pendingIntentRecord, "key");
+        byte[] payload = getMipushPayloadFromIntent(getLastIntentFromPendingIntentKey(key));
+        if (payload != null) {
+            return payload;
+        }
+        return getMipushPayloadFromIntent(getFillInIntentFromArgs(args));
+    }
+
+    private byte[] getMipushPayloadFromIntent(Intent intent) {
+        if (intent == null) {
+            return null;
+        }
+        return getMipushPayloadFromBundle(intent.getExtras(), 0);
+    }
+
+    private byte[] getMipushPayloadFromBundle(Bundle bundle, int depth) {
+        if (bundle == null || depth > 2) {
+            return null;
+        }
+
+        try {
+            for (String key : bundle.keySet()) {
+                Object value;
+                try {
+                    value = bundle.get(key);
+                } catch (Throwable ignored) {
+                    continue;
+                }
+
+                if (value instanceof byte[] && isPayloadExtraKey(key)) {
+                    return (byte[]) value;
+                } else if (value instanceof Bundle) {
+                    byte[] payload = getMipushPayloadFromBundle((Bundle) value, depth + 1);
+                    if (payload != null) {
+                        return payload;
+                    }
+                } else if (value instanceof Intent) {
+                    byte[] payload = getMipushPayloadFromIntent((Intent) value);
+                    if (payload != null) {
+                        return payload;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     private String findLaunchableTargetPackage(PackageManager packageManager, Set<String> packages) {
