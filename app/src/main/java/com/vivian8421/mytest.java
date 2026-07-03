@@ -42,6 +42,7 @@ public class mytest implements IXposedHookLoadPackage {
     private static final long PACKAGE_READY_WAIT_MS = 2200L;
     private static final long PACKAGE_READY_WAIT_STEP_MS = 50L;
     private static final long RECENT_NOTIFICATION_LAUNCH_WINDOW_MS = 10000L;
+    private static final long AUTO_FREEZE_WAKE_SUPPRESS_WINDOW_MS = 3000L;
     private static final int MAX_PENDING_INTENT_RETRY_COUNT = 2;
     private static final int INTENT_SENDER_ACTIVITY = 2;
     private static final String XMSF_PACKAGE = "com.xiaomi.xmsf";
@@ -62,6 +63,8 @@ public class mytest implements IXposedHookLoadPackage {
     private static final List<RecentNotificationLaunch> recentNotificationLaunches = new ArrayList<>();
     private static final Object temporaryThawLock = new Object();
     private static final Map<PackageUserKey, Long> temporaryThawedPackages = new HashMap<>();
+    private static final Object autoFreezeSuppressLock = new Object();
+    private static final Map<PackageUserKey, Long> recentlyAutoFrozenPackages = new HashMap<>();
     private static Context systemContext;
     private static volatile Boolean autoFreezeEnabledOverride;
     private static volatile Integer freezeStrategyOverride;
@@ -422,6 +425,11 @@ public class mytest implements IXposedHookLoadPackage {
         collectPackagesFromArgs(args, packages);
         collectPackagesFromPendingIntentKey(sourceObject, packages);
         if (!isRecentNotificationLaunch(packages, userId)) {
+            return new WakeRequest(false, packages, userId);
+        }
+        if (hasRecentlyAutoFrozenPackage(packages, userId)) {
+            log("skip recent notification wake because package was just auto-frozen packages="
+                    + packages + " userId=" + userId);
             return new WakeRequest(false, packages, userId);
         }
 
@@ -1277,6 +1285,8 @@ public class mytest implements IXposedHookLoadPackage {
                     PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
                     0);
             setPackageStoppedState(packageManager, packageName, userId, classLoader, true);
+            markRecentlyAutoFrozenPackage(packageName, userId);
+            forgetRecentNotificationLaunch(packageName, userId);
             log("auto-froze temporary thawed package package="
                     + packageName + " userId=" + userId + " reason=" + reason);
             return true;
@@ -2441,11 +2451,77 @@ public class mytest implements IXposedHookLoadPackage {
         return false;
     }
 
+    private void forgetRecentNotificationLaunch(String packageName, int userId) {
+        if (TextUtils.isEmpty(packageName)) {
+            return;
+        }
+
+        synchronized (recentNotificationLaunchLock) {
+            for (int i = recentNotificationLaunches.size() - 1; i >= 0; i--) {
+                RecentNotificationLaunch launch = recentNotificationLaunches.get(i);
+                if (packageName.equals(launch.packageName)
+                        && (launch.userId == userId || launch.userId < 0 || userId < 0)) {
+                    recentNotificationLaunches.remove(i);
+                }
+            }
+        }
+    }
+
     private void pruneRecentNotificationLaunchesLocked(long now) {
         for (int i = recentNotificationLaunches.size() - 1; i >= 0; i--) {
             if (recentNotificationLaunches.get(i).expiresAt < now) {
                 recentNotificationLaunches.remove(i);
             }
+        }
+    }
+
+    private void markRecentlyAutoFrozenPackage(String packageName, int userId) {
+        if (TextUtils.isEmpty(packageName)) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        synchronized (autoFreezeSuppressLock) {
+            pruneRecentlyAutoFrozenPackagesLocked(now);
+            recentlyAutoFrozenPackages.put(
+                    new PackageUserKey(packageName, userId),
+                    now + AUTO_FREEZE_WAKE_SUPPRESS_WINDOW_MS);
+        }
+    }
+
+    private boolean hasRecentlyAutoFrozenPackage(Set<String> packages, int userId) {
+        if (packages == null || packages.isEmpty()) {
+            return false;
+        }
+
+        long now = System.currentTimeMillis();
+        synchronized (autoFreezeSuppressLock) {
+            pruneRecentlyAutoFrozenPackagesLocked(now);
+            for (String packageName : packages) {
+                if (TextUtils.isEmpty(packageName)) {
+                    continue;
+                }
+                for (PackageUserKey key : recentlyAutoFrozenPackages.keySet()) {
+                    if (packageName.equals(key.packageName)
+                            && (key.userId == userId || key.userId < 0 || userId < 0)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private void pruneRecentlyAutoFrozenPackagesLocked(long now) {
+        List<PackageUserKey> expiredKeys = new ArrayList<>();
+        for (Map.Entry<PackageUserKey, Long> entry : recentlyAutoFrozenPackages.entrySet()) {
+            Long expiresAt = entry.getValue();
+            if (expiresAt == null || expiresAt < now) {
+                expiredKeys.add(entry.getKey());
+            }
+        }
+        for (PackageUserKey key : expiredKeys) {
+            recentlyAutoFrozenPackages.remove(key);
         }
     }
 
