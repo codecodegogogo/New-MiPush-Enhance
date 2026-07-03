@@ -24,6 +24,7 @@ import java.io.File;
 public class MainActivity extends AppCompatActivity implements CompoundButton.OnCheckedChangeListener {
 
     private static final String PREFS_NAME = "settings";
+    private static final String ACTION_SETTINGS_CHANGED = "com.vivian8421.mipushEnhance.ACTION_SETTINGS_CHANGED";
     private static final String KEY_AUTO_FREEZE_ENABLED = "auto_freeze_enabled";
     private static final String KEY_FREEZE_STRATEGY = "freeze_strategy";
     private static final int FREEZE_STRATEGY_TASK_REMOVED = 0;
@@ -50,6 +51,7 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         freezeScreenOffOption = findViewById(R.id.freeze_screen_off_option);
         initFreezeStrategyOptions();
         makeSettingsReadable();
+        notifyModuleSettingsChanged();
 
         View aboutButton = findViewById(R.id.about_btn);
         aboutButton.setOnClickListener(new View.OnClickListener() {
@@ -109,6 +111,7 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
                 .putBoolean(KEY_AUTO_FREEZE_ENABLED, enabled)
                 .commit();
         makeSettingsReadable();
+        notifyModuleSettingsChanged();
         applyFreezeStrategyVisibility(enabled);
     }
 
@@ -128,11 +131,20 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
                 .putInt(KEY_FREEZE_STRATEGY, strategy)
                 .commit();
         makeSettingsReadable();
+        notifyModuleSettingsChanged();
         applyFreezeStrategySelection(strategy);
     }
 
     private SharedPreferences getSettingsPreferences() {
         return getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+    }
+
+    private void notifyModuleSettingsChanged() {
+        Intent intent = new Intent(ACTION_SETTINGS_CHANGED);
+        intent.setPackage(getPackageName());
+        intent.putExtra(KEY_AUTO_FREEZE_ENABLED, isAutoFreezeEnabled());
+        intent.putExtra(KEY_FREEZE_STRATEGY, getFreezeStrategy());
+        sendBroadcast(intent);
     }
 
     private void makeSettingsReadable() {
