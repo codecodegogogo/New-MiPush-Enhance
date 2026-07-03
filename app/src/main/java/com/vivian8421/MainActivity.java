@@ -5,6 +5,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import android.app.Dialog;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
@@ -20,7 +21,16 @@ import com.vivian8421.mipushEnhance.R;
 
 public class MainActivity extends AppCompatActivity implements CompoundButton.OnCheckedChangeListener {
 
+    private static final String PREFS_NAME = "settings";
+    private static final String KEY_FREEZE_STRATEGY = "freeze_strategy";
+    private static final int FREEZE_STRATEGY_TASK_REMOVED = 0;
+    private static final int FREEZE_STRATEGY_SCREEN_OFF = 1;
+
     private CompoundButton kgzm_sw;
+    private CompoundButton freezeTaskRemovedRadio;
+    private CompoundButton freezeScreenOffRadio;
+    private View freezeTaskRemovedOption;
+    private View freezeScreenOffOption;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -29,6 +39,11 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         kgzm_sw = findViewById(R.id.kgzm_sw);
         kgzm_sw.setChecked(isLauncherIconHidden());
         kgzm_sw.setOnCheckedChangeListener(this);
+        freezeTaskRemovedRadio = findViewById(R.id.freeze_task_removed_radio);
+        freezeScreenOffRadio = findViewById(R.id.freeze_screen_off_radio);
+        freezeTaskRemovedOption = findViewById(R.id.freeze_task_removed_option);
+        freezeScreenOffOption = findViewById(R.id.freeze_screen_off_option);
+        initFreezeStrategyOptions();
 
         View aboutButton = findViewById(R.id.about_btn);
         aboutButton.setOnClickListener(new View.OnClickListener() {
@@ -53,6 +68,53 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
                 openProjectUrl();
             }
         });
+    }
+
+    private void initFreezeStrategyOptions() {
+        final int strategy = getFreezeStrategy();
+        applyFreezeStrategySelection(strategy);
+
+        freezeTaskRemovedOption.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                setFreezeStrategy(FREEZE_STRATEGY_TASK_REMOVED);
+            }
+        });
+
+        freezeScreenOffOption.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                setFreezeStrategy(FREEZE_STRATEGY_SCREEN_OFF);
+            }
+        });
+    }
+
+    private int getFreezeStrategy() {
+        return getSettingsPreferences().getInt(KEY_FREEZE_STRATEGY, FREEZE_STRATEGY_TASK_REMOVED);
+    }
+
+    private void setFreezeStrategy(int strategy) {
+        getSettingsPreferences()
+                .edit()
+                .putInt(KEY_FREEZE_STRATEGY, strategy)
+                .apply();
+        applyFreezeStrategySelection(strategy);
+    }
+
+    private SharedPreferences getSettingsPreferences() {
+        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+    }
+
+    private void applyFreezeStrategySelection(int strategy) {
+        boolean taskRemovedSelected = strategy == FREEZE_STRATEGY_TASK_REMOVED;
+        freezeTaskRemovedRadio.setChecked(taskRemovedSelected);
+        freezeScreenOffRadio.setChecked(!taskRemovedSelected);
+        freezeTaskRemovedOption.setBackgroundResource(taskRemovedSelected
+                ? R.drawable.bg_strategy_option_selected
+                : R.drawable.bg_strategy_option);
+        freezeScreenOffOption.setBackgroundResource(taskRemovedSelected
+                ? R.drawable.bg_strategy_option
+                : R.drawable.bg_strategy_option_selected);
     }
 
     @Override

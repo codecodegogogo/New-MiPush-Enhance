@@ -91,6 +91,16 @@
                     android:lineSpacingExtra="4dp"
                     android:text="@string/about_readme_source"
                     android:textColor="@color/settings_text_secondary"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:lineSpacingExtra="4dp"
+                    android:text="@string/about_readme_fork"
+                    android:textColor="@color/settings_text_secondary"
                     android:textSize="15sp" />
 
                 <TextView
@@ -144,6 +154,15 @@
                     android:layout_marginTop="8dp"
                     android:lineSpacingExtra="4dp"
                     android:text="@string/about_readme_important"
+                    android:textColor="@color/settings_text_secondary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:lineSpacingExtra="4dp"
+                    android:text="@string/about_readme_important_required"
                     android:textColor="@color/settings_text_secondary"
                     android:textSize="15sp"
                     android:textStyle="bold" />

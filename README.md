@@ -11,9 +11,9 @@ forked from vivian8421/MiPush-Enhance
 ## 功能
 
 - 在冻结应用收到 MIPush 通知后，点击通知时自动解冻目标应用。
-- 解冻后重新触发原通知的 PendingIntent。
-- 针对部分系统场景，会额外清除应用 stopped 状态，提升拉起成功率。
+- 解冻后重新触发原通知的 PendingIntent，打开通知对应界面。
 - 提供模块设置页，可隐藏桌面图标、查看说明并快速重启手机。
+- 提供冻结策略。
 
 ## 使用
 
@@ -26,26 +26,23 @@ forked from vivian8421/MiPush-Enhance
 
 ## 重要
 
+本软件测试环境为xiaomi14 hyperos3 android16 雹-root停用模式
+
+理论上停用模式可以使用，其他的模式不行。（未适配）
+
 **冻结的应用必须支持mipush才可以适应本模块**
 
 
 
-## 部分原理
+**原理介绍**
 
-- 一开始只做了“解冻”：点击通知时 hook PendingIntentRecord.sendInner，发现目标包被停用，就用 PackageManager.setApplicationEnabledSetting(... ENABLED ...) 把它启用，然后重放原来的 PendingIntent。
+本模块的核心思路是：当被冻结的应用收到 MIPush 通知后，先不直接启动应用，而是在用户点击通知时由模块介入处理。模块会判断这次点击是否来自小米推送通知，如果目标应用当前处于停用或冻结状态，就先临时将它恢复为可用状态，并清除 stopped 状态，让系统能够正常把通知点击事件交给目标应用。
 
-  后来发现问题是：应用确实被唤醒了，但支付宝、抖音打不开详情页。日志里看到关键原因是 Android 16 / HyperOS 的后台启动限制：目标应用的 PushMessageHandler 在后台服务进程里启动详情页 Activity，被系统拦了，日志是 Background activity launch blocked。
+在部分新版本 Android / HyperOS 上，应用即使被解冻，也可能因为后台启动限制而无法打开通知对应的页面。因此模块还会在系统进程中监听通知点击后的 Activity 启动流程：如果目标应用已经收到消息，但打开详情页被系统拦截，模块会尝试由系统侧重新发起同一个启动请求，从而让通知能够真正跳转到对应界面。
 
-  中间试过几条路：
+简单来说，本模块做的不是长期保持应用运行，而是在点击通知时临时帮应用“解冻、接收点击、打开页面”。后续自动冻结功能则会在用户结束使用后，再把由模块临时解冻的应用恢复到冻结状态，尽量减少后台耗电。
 
-  - 先试延迟 1-2 秒重发通知 PendingIntent，结果只是再次把消息交给应用，仍然会被后台启动限制拦。
-  - 又试解析 MiPush payload 里的跳转信息，尝试直接还原 intent_uri / class_name / notify_effect，但不同应用实现不一致，不够稳。
-  - 然后从日志里确认：通知点击已经进了目标应用的 push service，真正失败点是后续 startActivity 被系统挡住。
-  - 所以改成 hook 系统进程里的 startActivity / startActivityAsUser，在“刚刚发生通知点击”的短时间窗口内，如果目标应用后台服务要打开详情页，就由 system_server 代启动同一个 Intent。
 
-  之后又遇到误触发：支付宝没通知也会被唤醒。日志显示那不是通知，是支付宝自己的 ALARM_ACTION。于是把触发条件收紧：只处理 MiPush 通知点击 PendingIntent，排除闹钟/后台任务，同时保留 com.xiaomi.xmsf / PushMessageHandler / mipush_payload 这些特征。
-
-  最终链路就是：点击通知 -> 确认是 MiPush 点击 -> 解冻目标应用 -> 重发原通知 PendingIntent -> 目标应用处理消息 -> 如果后台启动详情页被系统拦截，就由系统进程代启动。
 
 ## 说明
 
