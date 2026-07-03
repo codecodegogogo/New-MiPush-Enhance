@@ -141,7 +141,6 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
 
     private void notifyModuleSettingsChanged() {
         Intent intent = new Intent(ACTION_SETTINGS_CHANGED);
-        intent.setPackage(getPackageName());
         intent.putExtra(KEY_AUTO_FREEZE_ENABLED, isAutoFreezeEnabled());
         intent.putExtra(KEY_FREEZE_STRATEGY, getFreezeStrategy());
         sendBroadcast(intent);

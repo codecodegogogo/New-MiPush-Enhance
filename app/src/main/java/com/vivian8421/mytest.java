@@ -952,8 +952,12 @@ public class mytest implements IXposedHookLoadPackage {
         try {
             setApplicationEnabledSetting(packageManager, packageName, userId, classLoader);
             clearPackageStoppedState(packageManager, packageName, userId, classLoader);
-            rememberTemporaryThawedPackage(packageName, userId, classLoader);
-            log("enabled disabled package before launch: " + packageName + " userId=" + userId);
+            boolean remembered = rememberTemporaryThawedPackage(packageName, userId, classLoader);
+            log("enabled disabled package before launch: " + packageName
+                    + " userId=" + userId
+                    + " autoFreezeEnabled=" + isAutoFreezeEnabled(classLoader)
+                    + " freezeStrategy=" + getFreezeStrategy(classLoader)
+                    + " remembered=" + remembered);
             return true;
         } catch (Throwable e) {
             log("enable package failed: " + packageName + " userId=" + userId + " error=" + e);
@@ -1088,15 +1092,15 @@ public class mytest implements IXposedHookLoadPackage {
                 || state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED;
     }
 
-    private void rememberTemporaryThawedPackage(String packageName, int userId, ClassLoader classLoader) {
+    private boolean rememberTemporaryThawedPackage(String packageName, int userId, ClassLoader classLoader) {
         if (shouldSkipPackage(packageName) || isPushServicePackage(packageName)) {
-            return;
+            return false;
         }
 
         if (!isAutoFreezeEnabled(classLoader)) {
             log("skip remembering temporary thawed package because auto-freeze is disabled or unreadable package="
                     + packageName + " userId=" + userId);
-            return;
+            return false;
         }
 
         synchronized (temporaryThawLock) {
@@ -1104,6 +1108,7 @@ public class mytest implements IXposedHookLoadPackage {
         }
         log("remember temporary thawed package for auto-freeze package="
                 + packageName + " userId=" + userId + " strategy=" + getFreezeStrategy(classLoader));
+        return true;
     }
 
     private void handleScreenOffBroadcast(Object[] args, ClassLoader classLoader) {
@@ -1156,6 +1161,10 @@ public class mytest implements IXposedHookLoadPackage {
         Set<String> packages = collectPackagesFromTask(task);
         if (packages.isEmpty()) {
             log("auto-freeze task removed but no package resolved reason=" + reason);
+            freezeTemporaryThawedPackagesForStrategy(
+                    FREEZE_STRATEGY_TASK_REMOVED,
+                    classLoader,
+                    reason + ", no task package resolved");
             return;
         }
 
@@ -1189,6 +1198,10 @@ public class mytest implements IXposedHookLoadPackage {
             freezeTemporaryThawedPackagesFromTask(task, classLoader, reason);
         } else {
             log("auto-freeze task removed but task not found taskId=" + taskId + " reason=" + reason);
+            freezeTemporaryThawedPackagesForStrategy(
+                    FREEZE_STRATEGY_TASK_REMOVED,
+                    classLoader,
+                    reason + ", task not found");
         }
     }
 
