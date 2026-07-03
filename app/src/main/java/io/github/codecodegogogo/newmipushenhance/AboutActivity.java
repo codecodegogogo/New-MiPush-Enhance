@@ -1,11 +1,9 @@
-package com.vivian8421;
+package io.github.codecodegogogo.newmipushenhance;
 
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.os.Bundle;
 import android.view.View;
-
-import com.vivian8421.mipushEnhance.R;
 
 public class AboutActivity extends AppCompatActivity {
     @Override

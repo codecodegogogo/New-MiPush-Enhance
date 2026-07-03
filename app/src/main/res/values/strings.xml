@@ -8,11 +8,12 @@
     <string name="project_address_label">codecodegogogo/New-MiPush-Enhance</string>
     <string name="scope_card_title">LSPosed / Xposed 配置</string>
     <string name="scope_card_summary">请在模块作用域中勾选系统框架和小米服务框架后重启手机。</string>
-    <string name="reboot_phone">重启手机</string>
-    <string name="reboot_confirm_title">是否重启</string>
+    <string name="request_root_permission">获取 Root 权限</string>
+    <string name="root_permission_confirm_title">是否授予 Root 权限</string>
     <string name="dialog_yes">是</string>
     <string name="dialog_no">否</string>
-    <string name="reboot_failed_message">没有 Root 权限，需要手动重启手机。</string>
+    <string name="root_permission_success">成功获取root</string>
+    <string name="root_permission_missing">未获取root软件可能不能正常运行</string>
     <string name="dialog_ok">确认</string>
     <string name="display_section_title">显示设置</string>
     <string name="hide_launcher_title">隐藏桌面图标</string>
@@ -32,7 +33,7 @@
     <string name="readme_section_features">功能</string>
     <string name="readme_feature_auto_thaw">- 在被冻结应用收到 MIPush 通知后，点击通知时自动解冻目标应用。</string>
     <string name="readme_feature_replay_pending_intent">- 解冻后重新触发原通知的 PendingIntent，打开通知对应界面。</string>
-    <string name="readme_feature_settings_page">- 提供模块设置页，可隐藏桌面图标、查看说明并快速重启手机。</string>
+    <string name="readme_feature_settings_page">- 提供模块设置页，可隐藏桌面图标、查看说明并申请 Root 权限。</string>
     <string name="readme_feature_freeze_strategy">- 提供冻结策略。</string>
     <string name="readme_section_usage">使用</string>
     <string name="readme_usage_intro">在 LSPosed / Xposed 中启用模块后，请在模块作用域中勾选：</string>

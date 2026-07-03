@@ -23,7 +23,8 @@
             android:fontFamily="sans-serif-medium"
             android:gravity="center"
             android:includeFontPadding="false"
-            android:text="@string/reboot_confirm_title"
+            android:lineSpacingExtra="3dp"
+            android:text="@string/root_permission_confirm_title"
             android:textColor="@color/settings_text_primary"
             android:textSize="22sp"
             android:textStyle="bold" />

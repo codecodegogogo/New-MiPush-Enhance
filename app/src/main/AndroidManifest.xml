@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.vivian8421.mipushEnhance">
+    package="io.github.codecodegogogo.newmipushenhance">
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.mipushEnhance">
+        android:theme="@style/Theme.NewMipushEnhance">
 
         <meta-data
             android:name="xposedmodule"
@@ -24,9 +24,9 @@
 
 
 <!--         这个activity可以被Xposed Installer启动-->
-        <activity android:name="com.vivian8421.AboutActivity" android:exported="false" />
+        <activity android:name="io.github.codecodegogogo.newmipushenhance.AboutActivity" android:exported="false" />
 
-        <activity android:label="@string/app_name" android:name="com.vivian8421.MainActivity" android:exported="true">
+        <activity android:label="@string/app_name" android:name="io.github.codecodegogogo.newmipushenhance.MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS"/>
@@ -34,7 +34,7 @@
         </activity>
 
         <activity-alias android:enabled="true" android:icon="@mipmap/ic_launcher" android:label="@string/app_name"
-            android:name="com.vivian8421.MainActivityAlias" android:targetActivity="com.vivian8421.MainActivity" android:exported="true">
+            android:name="io.github.codecodegogogo.newmipushenhance.MainActivityAlias" android:targetActivity="io.github.codecodegogogo.newmipushenhance.MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

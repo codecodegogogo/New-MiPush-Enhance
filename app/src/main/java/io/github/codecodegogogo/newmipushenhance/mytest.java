@@ -1,4 +1,4 @@
-package com.vivian8421;
+package io.github.codecodegogogo.newmipushenhance;
 
 import android.content.ComponentName;
 import android.content.Context;
@@ -32,9 +32,10 @@ import de.robv.android.xposed.XSharedPreferences;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 public class mytest implements IXposedHookLoadPackage {
-    private static final String MODULE_PACKAGE = "com.vivian8421.mipushEnhance";
+    private static final String MODULE_PACKAGE = "io.github.codecodegogogo.newmipushenhance";
     private static final String PREFS_NAME = "settings";
-    private static final String ACTION_SETTINGS_CHANGED = "com.vivian8421.mipushEnhance.ACTION_SETTINGS_CHANGED";
+    private static final String ACTION_SETTINGS_CHANGED =
+            "io.github.codecodegogogo.newmipushenhance.ACTION_SETTINGS_CHANGED";
     private static final String KEY_AUTO_FREEZE_ENABLED = "auto_freeze_enabled";
     private static final String KEY_FREEZE_STRATEGY = "freeze_strategy";
     private static final long PENDING_INTENT_RETRY_DELAY_MS = 1600L;

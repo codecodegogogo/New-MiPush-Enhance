@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     android:background="@color/settings_background"
     android:orientation="vertical"
-    tools:context="com.vivian8421.AboutActivity">
+    tools:context="io.github.codecodegogogo.newmipushenhance.AboutActivity">
 
     <LinearLayout
         android:layout_width="match_parent"

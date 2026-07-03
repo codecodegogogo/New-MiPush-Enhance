@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     android:background="@color/settings_background"
     android:orientation="vertical"
-    tools:context="com.vivian8421.MainActivity">
+    tools:context="io.github.codecodegogogo.newmipushenhance.MainActivity">
 
     <LinearLayout
         android:id="@+id/header_container"
@@ -118,15 +118,15 @@
                         android:textSize="15sp" />
 
                     <androidx.appcompat.widget.AppCompatImageButton
-                        android:id="@+id/reboot_btn"
+                        android:id="@+id/root_permission_btn"
                         android:layout_width="48dp"
                         android:layout_height="48dp"
                         android:layout_marginStart="14dp"
-                        android:background="@drawable/bg_reboot_button"
-                        android:contentDescription="@string/reboot_phone"
+                        android:background="@drawable/bg_root_button"
+                        android:contentDescription="@string/request_root_permission"
                         android:padding="12dp"
                         android:scaleType="center"
-                        app:srcCompat="@drawable/ic_reboot" />
+                        app:srcCompat="@drawable/ic_android_robot" />
                 </LinearLayout>
             </LinearLayout>
 

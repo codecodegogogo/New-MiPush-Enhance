@@ -1,4 +1,4 @@
-package com.vivian8421;
+package io.github.codecodegogogo.newmipushenhance;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -16,15 +16,15 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.CompoundButton;
-
-import com.vivian8421.mipushEnhance.R;
+import android.widget.Toast;
 
 import java.io.File;
 
 public class MainActivity extends AppCompatActivity implements CompoundButton.OnCheckedChangeListener {
 
     private static final String PREFS_NAME = "settings";
-    private static final String ACTION_SETTINGS_CHANGED = "com.vivian8421.mipushEnhance.ACTION_SETTINGS_CHANGED";
+    private static final String ACTION_SETTINGS_CHANGED =
+            "io.github.codecodegogogo.newmipushenhance.ACTION_SETTINGS_CHANGED";
     private static final String KEY_AUTO_FREEZE_ENABLED = "auto_freeze_enabled";
     private static final String KEY_FREEZE_STRATEGY = "freeze_strategy";
     private static final int FREEZE_STRATEGY_TASK_REMOVED = 0;
@@ -61,11 +61,11 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
             }
         });
 
-        View rebootButton = findViewById(R.id.reboot_btn);
-        rebootButton.setOnClickListener(new View.OnClickListener() {
+        View rootPermissionButton = findViewById(R.id.root_permission_btn);
+        rootPermissionButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                showRebootConfirmDialog();
+                showRootPermissionDialog();
             }
         });
 
@@ -200,7 +200,9 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
     }
 
     private ComponentName getAliseComponentName(){
-        return new ComponentName(MainActivity.this, "com.vivian8421.MainActivityAlias");
+        return new ComponentName(
+                MainActivity.this,
+                "io.github.codecodegogogo.newmipushenhance.MainActivityAlias");
     }
 
     private void openProjectUrl() {
@@ -208,8 +210,8 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         startActivity(intent);
     }
 
-    private void showRebootConfirmDialog() {
-        final Dialog dialog = createBottomDialog(R.layout.dialog_reboot_confirm);
+    private void showRootPermissionDialog() {
+        final Dialog dialog = createBottomDialog(R.layout.dialog_root_permission);
         View cancelButton = dialog.findViewById(R.id.dialog_cancel_btn);
         View confirmButton = dialog.findViewById(R.id.dialog_confirm_btn);
 
@@ -217,50 +219,46 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
             @Override
             public void onClick(View view) {
                 dialog.dismiss();
+                showRootToast(false);
             }
         });
         confirmButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 dialog.dismiss();
-                rebootPhone();
+                requestRootPermission();
             }
         });
         showBottomDialog(dialog);
     }
 
-    private void rebootPhone() {
+    private void requestRootPermission() {
         new Thread(new Runnable() {
             @Override
             public void run() {
+                boolean granted = false;
                 try {
-                    Process process = Runtime.getRuntime().exec(new String[]{"su", "-c", "reboot"});
-                    int exitCode = process.waitFor();
-                    if (exitCode != 0) {
-                        showRebootFailedDialog();
-                    }
-                } catch (Exception e) {
-                    showRebootFailedDialog();
+                    Process process = Runtime.getRuntime().exec(new String[]{"su", "-c", "id"});
+                    granted = process.waitFor() == 0;
+                } catch (Throwable ignored) {
                 }
+                final boolean rootGranted = granted;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        showRootToast(rootGranted);
+                    }
+                });
             }
         }).start();
     }
 
-    private void showRebootFailedDialog() {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                final Dialog dialog = createBottomDialog(R.layout.dialog_reboot_failed);
-                View okButton = dialog.findViewById(R.id.dialog_ok_btn);
-                okButton.setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View view) {
-                        dialog.dismiss();
-                    }
-                });
-                showBottomDialog(dialog);
-            }
-        });
+    private void showRootToast(boolean granted) {
+        Toast.makeText(
+                this,
+                granted ? R.string.root_permission_success : R.string.root_permission_missing,
+                Toast.LENGTH_SHORT)
+                .show();
     }
 
     private Dialog createBottomDialog(int layoutResId) {
