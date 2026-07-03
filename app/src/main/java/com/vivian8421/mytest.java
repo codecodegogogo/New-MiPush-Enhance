@@ -203,11 +203,13 @@ public class mytest implements IXposedHookLoadPackage {
         hookTaskRemovedForAutoFreeze(classLoader);
         hookPowerManagerScreenOffForAutoFreeze(classLoader);
         hookPowerNotifierScreenOffForAutoFreeze(classLoader);
+        hookBatteryStatsInteractiveForAutoFreeze(classLoader);
     }
 
     private void hookPowerManagerScreenOffForAutoFreeze(final ClassLoader classLoader) {
         Class<?> serviceClass = findClassSafely("com.android.server.power.PowerManagerService", classLoader);
         if (serviceClass == null) {
+            log("PowerManagerService screen-off auto-freeze hook class not found");
             return;
         }
 
@@ -222,39 +224,108 @@ public class mytest implements IXposedHookLoadPackage {
             final String methodName,
             final ClassLoader classLoader) {
         try {
-            XposedBridge.hookAllMethods(serviceClass, methodName, new XC_MethodHook() {
+            Set<?> unhooks = XposedBridge.hookAllMethods(serviceClass, methodName, new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                     handleScreenOffPowerEvent(classLoader, "power manager: " + methodName);
                 }
             });
-            log("PowerManagerService." + methodName + " screen-off auto-freeze hook installed");
+            if (unhooks.isEmpty()) {
+                log("PowerManagerService." + methodName + " screen-off auto-freeze hook not found");
+            } else {
+                log("PowerManagerService." + methodName + " screen-off auto-freeze hook installed");
+            }
         } catch (Throwable e) {
             log("PowerManagerService." + methodName + " screen-off auto-freeze hook failed: " + e);
         }
     }
 
     private void hookPowerNotifierScreenOffForAutoFreeze(final ClassLoader classLoader) {
-        Class<?> notifierClass = findClassSafely("com.android.server.power.Notifier", classLoader);
+        hookPowerNotifierScreenOffClass("com.android.server.power.PowerManagerNotifier", classLoader);
+        hookPowerNotifierScreenOffClass("com.android.server.power.Notifier", classLoader);
+    }
+
+    private void hookPowerNotifierScreenOffClass(String className, final ClassLoader classLoader) {
+        Class<?> notifierClass = findClassSafely(className, classLoader);
         if (notifierClass == null) {
+            log(className + " screen-off auto-freeze hook class not found");
+            return;
+        }
+
+        hookPowerNotifierScreenOffMethod(notifierClass, className, "onWakefulnessChangeStarted", classLoader);
+        hookPowerNotifierScreenOffMethod(notifierClass, className, "onWakefulnessChangeFinished", classLoader);
+        hookPowerNotifierScreenOffMethod(notifierClass, className, "onGroupWakefulnessChangeStarted", classLoader);
+        hookPowerNotifierScreenOffMethod(notifierClass, className, "onGroupWakefulnessChangeFinished", classLoader);
+    }
+
+    private void hookPowerNotifierScreenOffMethod(
+            Class<?> notifierClass,
+            final String className,
+            final String methodName,
+            final ClassLoader classLoader) {
+        try {
+            Set<?> unhooks = XposedBridge.hookAllMethods(notifierClass, methodName, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    Boolean interactive = findFirstBooleanArg(param.args);
+                    if (interactive != null) {
+                        if (!interactive) {
+                            handleScreenOffPowerEvent(
+                                    classLoader,
+                                    className + "." + methodName + " interactive=false");
+                        }
+                        return;
+                    }
+
+                    Integer wakefulness = findFirstIntegerArg(param.args);
+                    if (wakefulness != null && wakefulness != 1) {
+                        handleScreenOffPowerEvent(
+                                classLoader,
+                                className + "." + methodName + " wakefulness=" + wakefulness);
+                    }
+                }
+            });
+            if (unhooks.isEmpty()) {
+                log(className + "." + methodName + " screen-off auto-freeze hook not found");
+            } else {
+                log(className + "." + methodName + " screen-off auto-freeze hook installed");
+            }
+        } catch (Throwable e) {
+            log(className + "." + methodName + " screen-off auto-freeze hook failed: " + e);
+        }
+    }
+
+    private void hookBatteryStatsInteractiveForAutoFreeze(final ClassLoader classLoader) {
+        hookBatteryStatsInteractiveClass("com.android.server.power.stats.BatteryStatsImpl", classLoader);
+        hookBatteryStatsInteractiveClass("com.android.internal.os.BatteryStatsImpl", classLoader);
+    }
+
+    private void hookBatteryStatsInteractiveClass(String className, final ClassLoader classLoader) {
+        Class<?> statsClass = findClassSafely(className, classLoader);
+        if (statsClass == null) {
+            log(className + ".noteInteractiveLocked screen-off auto-freeze hook class not found");
             return;
         }
 
         try {
-            XposedBridge.hookAllMethods(notifierClass, "onWakefulnessChangeStarted", new XC_MethodHook() {
+            Set<?> unhooks = XposedBridge.hookAllMethods(statsClass, "noteInteractiveLocked", new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                    Integer wakefulness = findFirstIntegerArg(param.args);
-                    if (wakefulness == null || wakefulness != 1) {
+                    Boolean interactive = findFirstBooleanArg(param.args);
+                    if (Boolean.FALSE.equals(interactive)) {
                         handleScreenOffPowerEvent(
                                 classLoader,
-                                "power notifier: onWakefulnessChangeStarted wakefulness=" + wakefulness);
+                                className + ".noteInteractiveLocked interactive=false");
                     }
                 }
             });
-            log("PowerManager Notifier.onWakefulnessChangeStarted screen-off auto-freeze hook installed");
+            if (unhooks.isEmpty()) {
+                log(className + ".noteInteractiveLocked screen-off auto-freeze hook not found");
+            } else {
+                log(className + ".noteInteractiveLocked screen-off auto-freeze hook installed");
+            }
         } catch (Throwable e) {
-            log("PowerManager Notifier.onWakefulnessChangeStarted screen-off auto-freeze hook failed: " + e);
+            log(className + ".noteInteractiveLocked screen-off auto-freeze hook failed: " + e);
         }
     }
 
@@ -1443,6 +1514,18 @@ public class mytest implements IXposedHookLoadPackage {
         for (Object arg : args) {
             if (arg instanceof Integer) {
                 return (Integer) arg;
+            }
+        }
+        return null;
+    }
+
+    private Boolean findFirstBooleanArg(Object[] args) {
+        if (args == null) {
+            return null;
+        }
+        for (Object arg : args) {
+            if (arg instanceof Boolean) {
+                return (Boolean) arg;
             }
         }
         return null;
