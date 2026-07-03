@@ -1,6 +1,6 @@
 # New Mipush Enhance
 
-一个用于增强小米推送通知体验的 Xposed / LSPosed 模块。
+一个用于增强被冻结应用的小米推送通知体验的 Xposed / LSPosed 模块。
 
 **本项目地址：https://github.com/codecodegogogo/New-MiPush-Enhance**
 
@@ -10,7 +10,7 @@ forked from vivian8421/MiPush-Enhance
 
 ## 功能
 
-- 在冻结应用收到 MIPush 通知后，点击通知时自动解冻目标应用。
+- 在被冻结应用收到 MIPush 通知后，点击通知时自动解冻目标应用。
 - 解冻后重新触发原通知的 PendingIntent，打开通知对应界面。
 - 提供模块设置页，可隐藏桌面图标、查看说明并快速重启手机。
 - 提供冻结策略。
@@ -30,8 +30,8 @@ forked from vivian8421/MiPush-Enhance
 
 理论上停用模式可以使用，其他的模式不行。（未适配）
 
-**冻结的应用必须支持mipush才可以适应本模块**
-
+**被冻结的应用必须支持mipush才可以适应本模块**
+例如：微信 哔哩哔哩国际版未接入mipush，所以使用本模块也不会让他受到通知。
 
 
 **原理介绍**
