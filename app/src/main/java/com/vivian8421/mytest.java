@@ -43,6 +43,7 @@ public class mytest implements IXposedHookLoadPackage {
     private static final long PACKAGE_READY_WAIT_STEP_MS = 50L;
     private static final long RECENT_NOTIFICATION_LAUNCH_WINDOW_MS = 10000L;
     private static final long AUTO_FREEZE_WAKE_SUPPRESS_WINDOW_MS = 3000L;
+    private static final long SCREEN_OFF_AUTO_FREEZE_THROTTLE_MS = 1500L;
     private static final int MAX_PENDING_INTENT_RETRY_COUNT = 2;
     private static final int INTENT_SENDER_ACTIVITY = 2;
     private static final String XMSF_PACKAGE = "com.xiaomi.xmsf";
@@ -68,6 +69,7 @@ public class mytest implements IXposedHookLoadPackage {
     private static Context systemContext;
     private static volatile Boolean autoFreezeEnabledOverride;
     private static volatile Integer freezeStrategyOverride;
+    private static volatile long lastScreenOffAutoFreezeAt;
     private XSharedPreferences modulePreferences;
 
     @Override
@@ -199,6 +201,61 @@ public class mytest implements IXposedHookLoadPackage {
 
     private void hookAutoFreezeWake(final ClassLoader classLoader) {
         hookTaskRemovedForAutoFreeze(classLoader);
+        hookPowerManagerScreenOffForAutoFreeze(classLoader);
+        hookPowerNotifierScreenOffForAutoFreeze(classLoader);
+    }
+
+    private void hookPowerManagerScreenOffForAutoFreeze(final ClassLoader classLoader) {
+        Class<?> serviceClass = findClassSafely("com.android.server.power.PowerManagerService", classLoader);
+        if (serviceClass == null) {
+            return;
+        }
+
+        hookPowerManagerScreenOffMethod(serviceClass, "goToSleep", classLoader);
+        hookPowerManagerScreenOffMethod(serviceClass, "goToSleepInternal", classLoader);
+        hookPowerManagerScreenOffMethod(serviceClass, "goToSleepNoUpdateLocked", classLoader);
+        hookPowerManagerScreenOffMethod(serviceClass, "reallyGoToSleepNoUpdateLocked", classLoader);
+    }
+
+    private void hookPowerManagerScreenOffMethod(
+            Class<?> serviceClass,
+            final String methodName,
+            final ClassLoader classLoader) {
+        try {
+            XposedBridge.hookAllMethods(serviceClass, methodName, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    handleScreenOffPowerEvent(classLoader, "power manager: " + methodName);
+                }
+            });
+            log("PowerManagerService." + methodName + " screen-off auto-freeze hook installed");
+        } catch (Throwable e) {
+            log("PowerManagerService." + methodName + " screen-off auto-freeze hook failed: " + e);
+        }
+    }
+
+    private void hookPowerNotifierScreenOffForAutoFreeze(final ClassLoader classLoader) {
+        Class<?> notifierClass = findClassSafely("com.android.server.power.Notifier", classLoader);
+        if (notifierClass == null) {
+            return;
+        }
+
+        try {
+            XposedBridge.hookAllMethods(notifierClass, "onWakefulnessChangeStarted", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    Integer wakefulness = findFirstIntegerArg(param.args);
+                    if (wakefulness == null || wakefulness != 1) {
+                        handleScreenOffPowerEvent(
+                                classLoader,
+                                "power notifier: onWakefulnessChangeStarted wakefulness=" + wakefulness);
+                    }
+                }
+            });
+            log("PowerManager Notifier.onWakefulnessChangeStarted screen-off auto-freeze hook installed");
+        } catch (Throwable e) {
+            log("PowerManager Notifier.onWakefulnessChangeStarted screen-off auto-freeze hook failed: " + e);
+        }
     }
 
     private void hookTaskRemovedForAutoFreeze(final ClassLoader classLoader) {
@@ -1123,10 +1180,26 @@ public class mytest implements IXposedHookLoadPackage {
         if (!containsIntentAction(args, Intent.ACTION_SCREEN_OFF)) {
             return;
         }
+        handleScreenOffPowerEvent(classLoader, "screen off broadcast");
+    }
+
+    private void handleScreenOffPowerEvent(ClassLoader classLoader, String reason) {
+        if (!isAutoFreezeEnabled(classLoader)
+                || getFreezeStrategy(classLoader) != FREEZE_STRATEGY_SCREEN_OFF) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long lastAt = lastScreenOffAutoFreezeAt;
+        if (now - lastAt < SCREEN_OFF_AUTO_FREEZE_THROTTLE_MS) {
+            return;
+        }
+        lastScreenOffAutoFreezeAt = now;
+        log("screen-off auto-freeze triggered reason=" + reason);
         freezeTemporaryThawedPackagesForStrategy(
                 FREEZE_STRATEGY_SCREEN_OFF,
                 classLoader,
-                "screen off broadcast");
+                reason);
     }
 
     private void handleModuleSettingsBroadcast(Object[] args) {
@@ -1224,6 +1297,9 @@ public class mytest implements IXposedHookLoadPackage {
         List<PackageUserKey> keys;
         synchronized (temporaryThawLock) {
             keys = new ArrayList<>(temporaryThawedPackages.keySet());
+        }
+        if (keys.isEmpty()) {
+            log("auto-freeze strategy triggered but no tracked package reason=" + reason);
         }
         for (PackageUserKey key : keys) {
             freezeTemporaryThawedPackage(key, classLoader, reason);
@@ -1358,6 +1434,18 @@ public class mytest implements IXposedHookLoadPackage {
             }
         }
         return -1;
+    }
+
+    private Integer findFirstIntegerArg(Object[] args) {
+        if (args == null) {
+            return null;
+        }
+        for (Object arg : args) {
+            if (arg instanceof Integer) {
+                return (Integer) arg;
+            }
+        }
+        return null;
     }
 
     private Object findTaskById(Object service, int taskId) {
