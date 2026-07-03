@@ -30,22 +30,25 @@
     <string name="about_readme_intro">一个用于增强被冻结应用的小米推送通知体验的 Xposed / LSPosed 模块。</string>
     <string name="about_readme_source">本项目地址：https://github.com/codecodegogogo/New-MiPush-Enhance</string>
     <string name="about_readme_fork">forked from vivian8421/MiPush-Enhance</string>
-    <string name="readme_section_features">功能</string>
+    <string name="readme_section_features">一、功能</string>
     <string name="readme_feature_auto_thaw">- 在被冻结应用收到 MIPush 通知后，点击通知时自动解冻目标应用。</string>
     <string name="readme_feature_replay_pending_intent">- 解冻后重新触发原通知的 PendingIntent，打开通知对应界面。</string>
-    <string name="readme_feature_settings_page">- 提供模块设置页，可隐藏桌面图标、查看说明并申请 Root 权限。</string>
-    <string name="readme_feature_freeze_strategy">- 提供冻结策略。</string>
-    <string name="readme_section_usage">使用</string>
+    <string name="readme_feature_settings_page">- 提供模块设置页，可隐藏桌面图标。</string>
+    <string name="readme_feature_freeze_strategy">- 提供冻结策略：1.无后台自动清理 2.锁屏自动清理。</string>
+    <string name="readme_section_usage">二、使用</string>
     <string name="readme_usage_intro">在 LSPosed / Xposed 中启用模块后，请在模块作用域中勾选：</string>
     <string name="readme_usage_system_framework">- 系统框架</string>
     <string name="readme_usage_xmsf">- 小米服务框架</string>
     <string name="readme_usage_restart">设置完成后重启手机。</string>
-    <string name="readme_section_important">重要</string>
-    <string name="about_readme_important">本软件测试环境为xiaomi14 hyperos3 android16 雹-root停用模式&#10;&#10;理论上停用模式可以使用，其他的模式不行。（未适配）</string>
-    <string name="about_readme_important_required">冻结的应用必须支持mipush才可以适应本模块</string>
+    <string name="readme_section_important">三、重要说明</string>
+    <string name="about_readme_important">1.本软件测试环境为xiaomi14 hyperos3 android16 雹-root停用模式&#10;&#10;理论上停用模式可以使用，其他的模式不行。（未适配）</string>
+    <string name="about_readme_important_required">2.被冻结的应用必须支持mipush才可以适应本模块</string>
     <string name="about_readme_important_example">例如：微信 哔哩哔哩国际版未接入mipush，所以使用本模块也不会让他受到通知。</string>
-    <string name="readme_section_principle">原理介绍</string>
-    <string name="about_readme_principle">本模块的核心思路是：当被冻结的应用收到 MIPush 通知后，先不直接启动应用，而是在用户点击通知时由模块介入处理。模块会判断这次点击是否来自小米推送通知，如果目标应用当前处于停用或冻结状态，就先临时将它恢复为可用状态，并清除 stopped 状态，让系统能够正常把通知点击事件交给目标应用。&#10;&#10;在部分新版本 Android / HyperOS 上，应用即使被解冻，也可能因为后台启动限制而无法打开通知对应的页面。因此模块还会在系统进程中监听通知点击后的 Activity 启动流程：如果目标应用已经收到消息，但打开详情页被系统拦截，模块会尝试由系统侧重新发起同一个启动请求，从而让通知能够真正跳转到对应界面。&#10;&#10;简单来说，本模块做的不是长期保持应用运行，而是在点击通知时临时帮应用“解冻、接收点击、打开页面”。后续自动冻结功能则会在用户结束使用后，再把由模块临时解冻的应用恢复到冻结状态，尽量减少后台耗电。</string>
-    <string name="readme_section_note">说明</string>
-    <string name="about_readme_note">本模块主要面向使用 root 停用类冻结方式的场景。不同 Android / MIUI 版本的系统实现可能存在差异，实际效果以真机测试为准。</string>
+    <string name="readme_section_freeze_strategies">四.两种冻结策略</string>
+    <string name="about_freeze_task_removed_title">1. 划掉后台后冻结</string>
+    <string name="about_freeze_task_removed_body">触发条件是：用户把这个应用从最近任务里划掉，系统触发 Task.removedFromRecents/removeTask 之类事件。&#10;&#10;不会冻结的情况：&#10;&#10;- 自动冻结总开关没开。&#10;- 当前策略不是“划掉后台后冻结”。&#10;- 这个应用不是本模块临时解冻记录过的应用。&#10;- 系统任务里解析不到对应包名，或者 userId 对不上。&#10;- 这个应用还在最近任务里，没有被划掉。也就是说：只是退到后台、还在多任务列表里，不会冻结。&#10;- 系统调用停用失败，比如权限、系统限制、包管理接口异常。</string>
+    <string name="about_freeze_screen_off_title">2. 锁屏后冻结</string>
+    <string name="about_freeze_screen_off_body">触发条件是：系统进入灭屏/锁屏状态，比如 interactive=false 或 ACTION_SCREEN_OFF。&#10;&#10;不会冻结的情况：&#10;&#10;- 自动冻结总开关没开。&#10;- 当前策略不是“锁屏后冻结”。&#10;- 应用不是本模块临时解冻记录过的应用。&#10;- 锁屏 hook 没命中，也就是系统没有走到我们监听的锁屏触发点。</string>
+    <string name="readme_section_principle">五、原理介绍</string>
+    <string name="about_readme_principle">本模块面向使用 root 停用类冻结方式的场景。被冻结的应用通常无法直接响应通知点击，因此模块会在系统层监听 MIPush 通知点击流程。&#10;&#10;当用户点击一条来自小米推送的通知时，模块会先判断目标应用是否处于停用/冻结状态。如果是，就临时将目标应用恢复为可用状态，并清除 stopped 状态，让系统能够继续把通知点击事件交给目标应用。&#10;&#10;在部分 Android / HyperOS 版本上，仅解冻应用还不够，通知对应页面可能仍会被后台启动限制拦截。因此模块还会尝试重新触发原通知的 PendingIntent，并在必要时从系统侧补发启动请求，使目标应用尽量打开到通知对应页面。&#10;&#10;自动冻结功能只处理由本模块临时解冻过的应用。用户可以选择在“从最近任务划掉后冻结”或“锁屏后冻结”时，将这些应用重新恢复为停用状态，避免应用长期留在后台运行。</string>
 </resources>
