@@ -117,7 +117,34 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:lineSpacingExtra="4dp"
-                    android:text="@string/about_readme_features"
+                    android:text="@string/readme_feature_auto_thaw"
+                    android:textColor="@color/settings_text_secondary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:lineSpacingExtra="4dp"
+                    android:text="@string/readme_feature_replay_pending_intent"
+                    android:textColor="@color/settings_text_secondary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:lineSpacingExtra="4dp"
+                    android:text="@string/readme_feature_settings_page"
+                    android:textColor="@color/settings_text_secondary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:lineSpacingExtra="4dp"
+                    android:text="@string/readme_feature_freeze_strategy"
                     android:textColor="@color/settings_text_secondary"
                     android:textSize="15sp" />
 
@@ -135,7 +162,34 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:lineSpacingExtra="4dp"
-                    android:text="@string/about_readme_usage"
+                    android:text="@string/readme_usage_intro"
+                    android:textColor="@color/settings_text_secondary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:lineSpacingExtra="4dp"
+                    android:text="@string/readme_usage_system_framework"
+                    android:textColor="@color/settings_text_secondary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:lineSpacingExtra="4dp"
+                    android:text="@string/readme_usage_xmsf"
+                    android:textColor="@color/settings_text_secondary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:lineSpacingExtra="4dp"
+                    android:text="@string/readme_usage_restart"
                     android:textColor="@color/settings_text_secondary"
                     android:textSize="15sp" />
 
@@ -166,6 +220,15 @@
                     android:textColor="@color/settings_text_secondary"
                     android:textSize="15sp"
                     android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:lineSpacingExtra="4dp"
+                    android:text="@string/about_readme_important_example"
+                    android:textColor="@color/settings_text_secondary"
+                    android:textSize="15sp" />
 
                 <TextView
                     android:layout_width="match_parent"
