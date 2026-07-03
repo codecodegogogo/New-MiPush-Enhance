@@ -2,7 +2,9 @@ package com.vivian8421;
 
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.BroadcastReceiver;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
@@ -27,10 +29,14 @@ import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
+import de.robv.android.xposed.XSharedPreferences;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 public class mytest implements IXposedHookLoadPackage {
     private static final String MODULE_PACKAGE = "com.vivian8421.mipushEnhance";
+    private static final String PREFS_NAME = "settings";
+    private static final String KEY_AUTO_FREEZE_ENABLED = "auto_freeze_enabled";
+    private static final String KEY_FREEZE_STRATEGY = "freeze_strategy";
     private static final long PENDING_INTENT_RETRY_DELAY_MS = 1600L;
     private static final long PENDING_INTENT_SECOND_RETRY_DELAY_MS = 900L;
     private static final long PACKAGE_READY_WAIT_MS = 2200L;
@@ -45,6 +51,8 @@ public class mytest implements IXposedHookLoadPackage {
     private static final int FLAG_ALL_SENDERS = FLAG_ACTIVITY_SENDER
             | FLAG_BROADCAST_SENDER
             | FLAG_SERVICE_SENDER;
+    private static final int FREEZE_STRATEGY_TASK_REMOVED = 0;
+    private static final int FREEZE_STRATEGY_SCREEN_OFF = 1;
     private static final int SYSTEM_UID = 1000;
     private static final ThreadLocal<Boolean> retryingPendingIntent = new ThreadLocal<>();
     private static final ThreadLocal<Boolean> startingActivityFallback = new ThreadLocal<>();
@@ -52,7 +60,11 @@ public class mytest implements IXposedHookLoadPackage {
     private static final ThreadLocal<List<ActivityStartRequest>> activityStartRequests = new ThreadLocal<>();
     private static final Object recentNotificationLaunchLock = new Object();
     private static final List<RecentNotificationLaunch> recentNotificationLaunches = new ArrayList<>();
+    private static final Object temporaryThawLock = new Object();
+    private static final Map<PackageUserKey, Long> temporaryThawedPackages = new HashMap<>();
     private static Context systemContext;
+    private static boolean screenOffReceiverRegistered;
+    private XSharedPreferences modulePreferences;
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam loadPackageParam) throws Throwable {
@@ -63,6 +75,7 @@ public class mytest implements IXposedHookLoadPackage {
             hookActivityStartWake(loadPackageParam.classLoader);
             hookServiceStartWake(loadPackageParam.classLoader);
             hookBroadcastWake(loadPackageParam.classLoader);
+            hookAutoFreezeWake(loadPackageParam.classLoader);
         }
     }
 
@@ -178,6 +191,110 @@ public class mytest implements IXposedHookLoadPackage {
 
     private void hookBroadcastWake(final ClassLoader classLoader) {
         hookBroadcastClass("com.android.server.am.ActivityManagerService", classLoader);
+    }
+
+    private void hookAutoFreezeWake(final ClassLoader classLoader) {
+        hookTaskRemovedForAutoFreeze(classLoader);
+        ensureScreenOffReceiverRegistered(classLoader);
+    }
+
+    private void hookTaskRemovedForAutoFreeze(final ClassLoader classLoader) {
+        hookActivityTaskRemoveForAutoFreeze(classLoader);
+
+        Class<?> taskClass = findClassSafely("com.android.server.wm.Task", classLoader);
+        if (taskClass == null) {
+            return;
+        }
+
+        hookTaskRemovedMethod(taskClass, "removedFromRecents", classLoader);
+        hookTaskRemovedMethod(taskClass, "removeIfPossible", classLoader);
+        hookTaskRemovedMethod(taskClass, "removeImmediately", classLoader);
+    }
+
+    private void hookActivityTaskRemoveForAutoFreeze(final ClassLoader classLoader) {
+        Class<?> serviceClass = findClassSafely("com.android.server.wm.ActivityTaskManagerService", classLoader);
+        if (serviceClass == null) {
+            return;
+        }
+
+        hookActivityTaskRemoveMethod(serviceClass, "removeTask", classLoader);
+        hookActivityTaskRemoveMethod(serviceClass, "removeTaskWithFlags", classLoader);
+    }
+
+    private void hookActivityTaskRemoveMethod(
+            Class<?> serviceClass,
+            final String methodName,
+            final ClassLoader classLoader) {
+        try {
+            XposedBridge.hookAllMethods(serviceClass, methodName, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    freezeTemporaryThawedPackagesFromTaskId(
+                            param.thisObject,
+                            param.args,
+                            classLoader,
+                            "task removed: " + methodName);
+                }
+            });
+            log("ActivityTaskManagerService." + methodName + " auto-freeze hook installed");
+        } catch (Throwable e) {
+            log("ActivityTaskManagerService." + methodName + " auto-freeze hook failed: " + e);
+        }
+    }
+
+    private void hookTaskRemovedMethod(
+            Class<?> taskClass,
+            final String methodName,
+            final ClassLoader classLoader) {
+        try {
+            XposedBridge.hookAllMethods(taskClass, methodName, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    freezeTemporaryThawedPackagesFromTask(
+                            param.thisObject,
+                            classLoader,
+                            "task removed: " + methodName);
+                }
+            });
+            log("com.android.server.wm.Task." + methodName + " auto-freeze hook installed");
+        } catch (Throwable e) {
+            log("com.android.server.wm.Task." + methodName + " auto-freeze hook failed: " + e);
+        }
+    }
+
+    private void ensureScreenOffReceiverRegistered(final ClassLoader classLoader) {
+        if (screenOffReceiverRegistered) {
+            return;
+        }
+
+        final Context context = getSystemContext(classLoader);
+        if (context == null) {
+            return;
+        }
+
+        synchronized (temporaryThawLock) {
+            if (screenOffReceiverRegistered) {
+                return;
+            }
+            try {
+                IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+                context.registerReceiver(new BroadcastReceiver() {
+                    @Override
+                    public void onReceive(Context receiverContext, Intent intent) {
+                        if (intent != null && Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                            freezeTemporaryThawedPackagesForStrategy(
+                                    FREEZE_STRATEGY_SCREEN_OFF,
+                                    classLoader,
+                                    "screen off");
+                        }
+                    }
+                }, filter);
+                screenOffReceiverRegistered = true;
+                log("screen off auto-freeze receiver registered");
+            } catch (Throwable e) {
+                log("screen off auto-freeze receiver register failed: " + e);
+            }
+        }
     }
 
     private void hookStartActivityClass(String className, final ClassLoader classLoader) {
@@ -866,6 +983,7 @@ public class mytest implements IXposedHookLoadPackage {
         try {
             setApplicationEnabledSetting(packageManager, packageName, userId, classLoader);
             clearPackageStoppedState(packageManager, packageName, userId, classLoader);
+            rememberTemporaryThawedPackage(packageName, userId, classLoader);
             log("enabled disabled package before launch: " + packageName + " userId=" + userId);
             return true;
         } catch (Throwable e) {
@@ -932,6 +1050,22 @@ public class mytest implements IXposedHookLoadPackage {
     }
 
     private void setApplicationEnabledSetting(PackageManager packageManager, String packageName, int userId, ClassLoader classLoader) {
+        setApplicationEnabledSettingState(
+                packageManager,
+                packageName,
+                userId,
+                classLoader,
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                PackageManager.DONT_KILL_APP);
+    }
+
+    private void setApplicationEnabledSettingState(
+            PackageManager packageManager,
+            String packageName,
+            int userId,
+            ClassLoader classLoader,
+            int state,
+            int flags) {
         Object iPackageManager = getPackageManagerService(classLoader);
         if (iPackageManager != null) {
             try {
@@ -939,8 +1073,8 @@ public class mytest implements IXposedHookLoadPackage {
                         iPackageManager,
                         "setApplicationEnabledSetting",
                         packageName,
-                        PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                        PackageManager.DONT_KILL_APP,
+                        state,
+                        flags,
                         userId,
                         MODULE_PACKAGE);
                 return;
@@ -950,22 +1084,31 @@ public class mytest implements IXposedHookLoadPackage {
 
         packageManager.setApplicationEnabledSetting(
                 packageName,
-                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                PackageManager.DONT_KILL_APP);
+                state,
+                flags);
     }
 
     private void clearPackageStoppedState(PackageManager packageManager, String packageName, int userId, ClassLoader classLoader) {
+        setPackageStoppedState(packageManager, packageName, userId, classLoader, false);
+    }
+
+    private void setPackageStoppedState(
+            PackageManager packageManager,
+            String packageName,
+            int userId,
+            ClassLoader classLoader,
+            boolean stopped) {
         Object iPackageManager = getPackageManagerService(classLoader);
         if (iPackageManager != null) {
             try {
-                XposedHelpers.callMethod(iPackageManager, "setPackageStoppedState", packageName, false, userId);
+                XposedHelpers.callMethod(iPackageManager, "setPackageStoppedState", packageName, stopped, userId);
                 return;
             } catch (Throwable ignored) {
             }
         }
 
         try {
-            XposedHelpers.callMethod(packageManager, "setPackageStoppedState", packageName, false);
+            XposedHelpers.callMethod(packageManager, "setPackageStoppedState", packageName, stopped);
         } catch (Throwable ignored) {
         }
     }
@@ -974,6 +1117,247 @@ public class mytest implements IXposedHookLoadPackage {
         return state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
                 || state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
                 || state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED;
+    }
+
+    private void rememberTemporaryThawedPackage(String packageName, int userId, ClassLoader classLoader) {
+        if (shouldSkipPackage(packageName) || isPushServicePackage(packageName) || !isAutoFreezeEnabled()) {
+            return;
+        }
+
+        ensureScreenOffReceiverRegistered(classLoader);
+        synchronized (temporaryThawLock) {
+            temporaryThawedPackages.put(new PackageUserKey(packageName, userId), System.currentTimeMillis());
+        }
+        log("remember temporary thawed package for auto-freeze package="
+                + packageName + " userId=" + userId + " strategy=" + getFreezeStrategy());
+    }
+
+    private void freezeTemporaryThawedPackagesFromTask(
+            Object task,
+            ClassLoader classLoader,
+            String reason) {
+        if (!isAutoFreezeEnabled() || getFreezeStrategy() != FREEZE_STRATEGY_TASK_REMOVED) {
+            return;
+        }
+
+        Set<String> packages = collectPackagesFromTask(task);
+        if (packages.isEmpty()) {
+            return;
+        }
+
+        int userId = readUserIdFromTask(task);
+        List<PackageUserKey> keys = findTemporaryThawedPackages(packages, userId);
+        for (PackageUserKey key : keys) {
+            freezeTemporaryThawedPackage(key, classLoader, reason);
+        }
+    }
+
+    private void freezeTemporaryThawedPackagesFromTaskId(
+            Object service,
+            Object[] args,
+            ClassLoader classLoader,
+            String reason) {
+        if (!isAutoFreezeEnabled() || getFreezeStrategy() != FREEZE_STRATEGY_TASK_REMOVED) {
+            return;
+        }
+
+        int taskId = readTaskIdFromArgs(args);
+        if (taskId < 0) {
+            return;
+        }
+
+        Object task = findTaskById(service, taskId);
+        if (task != null) {
+            freezeTemporaryThawedPackagesFromTask(task, classLoader, reason);
+        }
+    }
+
+    private void freezeTemporaryThawedPackagesForStrategy(
+            int strategy,
+            ClassLoader classLoader,
+            String reason) {
+        if (!isAutoFreezeEnabled() || getFreezeStrategy() != strategy) {
+            return;
+        }
+
+        List<PackageUserKey> keys;
+        synchronized (temporaryThawLock) {
+            keys = new ArrayList<>(temporaryThawedPackages.keySet());
+        }
+        for (PackageUserKey key : keys) {
+            freezeTemporaryThawedPackage(key, classLoader, reason);
+        }
+    }
+
+    private List<PackageUserKey> findTemporaryThawedPackages(Set<String> packages, int userId) {
+        List<PackageUserKey> result = new ArrayList<>();
+        synchronized (temporaryThawLock) {
+            for (PackageUserKey key : temporaryThawedPackages.keySet()) {
+                if (packages.contains(key.packageName)
+                        && (userId < 0 || key.userId < 0 || key.userId == userId)) {
+                    result.add(key);
+                }
+            }
+        }
+        return result;
+    }
+
+    private void freezeTemporaryThawedPackage(
+            PackageUserKey key,
+            ClassLoader classLoader,
+            String reason) {
+        if (key == null || shouldSkipPackage(key.packageName) || isPushServicePackage(key.packageName)) {
+            return;
+        }
+
+        if (disablePackageForAutoFreeze(key.packageName, key.userId, classLoader, reason)) {
+            synchronized (temporaryThawLock) {
+                temporaryThawedPackages.remove(key);
+            }
+        }
+    }
+
+    private boolean disablePackageForAutoFreeze(
+            String packageName,
+            int userId,
+            ClassLoader classLoader,
+            String reason) {
+        Context context = getSystemContext(classLoader);
+        if (context == null) {
+            return false;
+        }
+
+        PackageManager packageManager = context.getPackageManager();
+        int state = getApplicationEnabledSetting(packageManager, packageName, userId, classLoader);
+        if (isDisabledState(state)) {
+            log("auto-freeze skipped because package is already disabled package="
+                    + packageName + " userId=" + userId + " reason=" + reason);
+            return true;
+        }
+
+        try {
+            setApplicationEnabledSettingState(
+                    packageManager,
+                    packageName,
+                    userId,
+                    classLoader,
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
+                    0);
+            setPackageStoppedState(packageManager, packageName, userId, classLoader, true);
+            log("auto-froze temporary thawed package package="
+                    + packageName + " userId=" + userId + " reason=" + reason);
+            return true;
+        } catch (Throwable e) {
+            log("auto-freeze failed package="
+                    + packageName + " userId=" + userId + " reason=" + reason + " error=" + e);
+            return false;
+        }
+    }
+
+    private Set<String> collectPackagesFromTask(Object task) {
+        Set<String> packages = new HashSet<>();
+        if (task == null) {
+            return packages;
+        }
+
+        collectPackageFromComponentField(task, "realActivity", packages);
+        collectPackageFromComponentField(task, "origActivity", packages);
+        collectPackageFromIntentField(task, "intent", packages);
+        collectPackageFromIntentField(task, "affinityIntent", packages);
+        collectPackageFromIntentMethod(task, "getBaseIntent", packages);
+        addPackage(String.valueOf(getObjectFieldSafely(task, "affinity")), packages);
+        addPackage(String.valueOf(getObjectFieldSafely(task, "rootAffinity")), packages);
+        return packages;
+    }
+
+    private void collectPackageFromComponentField(Object object, String fieldName, Set<String> packages) {
+        Object value = getObjectFieldSafely(object, fieldName);
+        if (value instanceof ComponentName) {
+            addPackage(((ComponentName) value).getPackageName(), packages);
+        }
+    }
+
+    private void collectPackageFromIntentField(Object object, String fieldName, Set<String> packages) {
+        Object value = getObjectFieldSafely(object, fieldName);
+        if (value instanceof Intent) {
+            collectPackagesFromIntent((Intent) value, packages);
+        }
+    }
+
+    private void collectPackageFromIntentMethod(Object object, String methodName, Set<String> packages) {
+        try {
+            Object value = XposedHelpers.callMethod(object, methodName);
+            if (value instanceof Intent) {
+                collectPackagesFromIntent((Intent) value, packages);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private int readUserIdFromTask(Object task) {
+        int userId = getIntFieldSafely(task, "mUserId", -1);
+        if (userId >= 0) {
+            return userId;
+        }
+        return getIntFieldSafely(task, "userId", -1);
+    }
+
+    private int readTaskIdFromArgs(Object[] args) {
+        if (args == null) {
+            return -1;
+        }
+        for (Object arg : args) {
+            if (arg instanceof Integer) {
+                int value = (Integer) arg;
+                if (value >= 0) {
+                    return value;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private Object findTaskById(Object service, int taskId) {
+        Object rootWindowContainer = getObjectFieldSafely(service, "mRootWindowContainer");
+        if (rootWindowContainer == null) {
+            return null;
+        }
+
+        try {
+            return XposedHelpers.callMethod(rootWindowContainer, "anyTaskForId", taskId);
+        } catch (Throwable ignored) {
+        }
+        try {
+            return XposedHelpers.callMethod(rootWindowContainer, "anyTaskForId", taskId, 0);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private boolean isAutoFreezeEnabled() {
+        XSharedPreferences preferences = getModulePreferences();
+        return preferences != null && preferences.getBoolean(KEY_AUTO_FREEZE_ENABLED, false);
+    }
+
+    private int getFreezeStrategy() {
+        XSharedPreferences preferences = getModulePreferences();
+        if (preferences == null) {
+            return FREEZE_STRATEGY_TASK_REMOVED;
+        }
+        return preferences.getInt(KEY_FREEZE_STRATEGY, FREEZE_STRATEGY_TASK_REMOVED);
+    }
+
+    private XSharedPreferences getModulePreferences() {
+        try {
+            if (modulePreferences == null) {
+                modulePreferences = new XSharedPreferences(MODULE_PACKAGE, PREFS_NAME);
+            }
+            modulePreferences.reload();
+            return modulePreferences;
+        } catch (Throwable e) {
+            log("read module settings failed: " + e);
+            return null;
+        }
     }
 
     private int readUserId(Object sourceObject) {
@@ -2089,6 +2473,38 @@ public class mytest implements IXposedHookLoadPackage {
 
     private void log(String message) {
         XposedBridge.log("NewMipushEnhance: " + message);
+    }
+
+    private static class PackageUserKey {
+        final String packageName;
+        final int userId;
+
+        PackageUserKey(String packageName, int userId) {
+            this.packageName = packageName;
+            this.userId = userId;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof PackageUserKey)) {
+                return false;
+            }
+            PackageUserKey other = (PackageUserKey) object;
+            return userId == other.userId
+                    && (packageName == null
+                    ? other.packageName == null
+                    : packageName.equals(other.packageName));
+        }
+
+        @Override
+        public int hashCode() {
+            int result = packageName == null ? 0 : packageName.hashCode();
+            result = 31 * result + userId;
+            return result;
+        }
     }
 
     private static class WakeRequest {

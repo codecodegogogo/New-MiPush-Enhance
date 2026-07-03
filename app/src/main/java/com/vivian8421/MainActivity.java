@@ -19,6 +19,8 @@ import android.widget.CompoundButton;
 
 import com.vivian8421.mipushEnhance.R;
 
+import java.io.File;
+
 public class MainActivity extends AppCompatActivity implements CompoundButton.OnCheckedChangeListener {
 
     private static final String PREFS_NAME = "settings";
@@ -47,6 +49,7 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         freezeTaskRemovedOption = findViewById(R.id.freeze_task_removed_option);
         freezeScreenOffOption = findViewById(R.id.freeze_screen_off_option);
         initFreezeStrategyOptions();
+        makeSettingsReadable();
 
         View aboutButton = findViewById(R.id.about_btn);
         aboutButton.setOnClickListener(new View.OnClickListener() {
@@ -104,7 +107,8 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         getSettingsPreferences()
                 .edit()
                 .putBoolean(KEY_AUTO_FREEZE_ENABLED, enabled)
-                .apply();
+                .commit();
+        makeSettingsReadable();
         applyFreezeStrategyVisibility(enabled);
     }
 
@@ -122,12 +126,29 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         getSettingsPreferences()
                 .edit()
                 .putInt(KEY_FREEZE_STRATEGY, strategy)
-                .apply();
+                .commit();
+        makeSettingsReadable();
         applyFreezeStrategySelection(strategy);
     }
 
     private SharedPreferences getSettingsPreferences() {
         return getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+    }
+
+    private void makeSettingsReadable() {
+        try {
+            File dataDir = new File(getApplicationInfo().dataDir);
+            File sharedPrefsDir = new File(dataDir, "shared_prefs");
+            File settingsFile = new File(sharedPrefsDir, PREFS_NAME + ".xml");
+            dataDir.setReadable(true, false);
+            dataDir.setExecutable(true, false);
+            sharedPrefsDir.setReadable(true, false);
+            sharedPrefsDir.setExecutable(true, false);
+            if (settingsFile.exists()) {
+                settingsFile.setReadable(true, false);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private void applyFreezeStrategySelection(int strategy) {
