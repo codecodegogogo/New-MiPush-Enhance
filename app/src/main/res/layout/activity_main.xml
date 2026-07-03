@@ -218,13 +218,29 @@
                 android:paddingEnd="20dp"
                 android:paddingBottom="18dp">
 
-                <TextView
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/auto_freeze_title"
-                    android:textColor="@color/settings_text_primary"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/auto_freeze_title"
+                        android:textColor="@color/settings_text_primary"
+                        android:textSize="18sp"
+                        android:textStyle="bold" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/auto_freeze_sw"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:minWidth="48dp"
+                        app:useMaterialThemeColors="true" />
+                </LinearLayout>
 
                 <TextView
                     android:layout_width="match_parent"
@@ -249,7 +265,8 @@
                     android:paddingStart="16dp"
                     android:paddingTop="12dp"
                     android:paddingEnd="14dp"
-                    android:paddingBottom="12dp">
+                    android:paddingBottom="12dp"
+                    android:visibility="gone">
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -299,7 +316,8 @@
                     android:paddingStart="16dp"
                     android:paddingTop="12dp"
                     android:paddingEnd="14dp"
-                    android:paddingBottom="12dp">
+                    android:paddingBottom="12dp"
+                    android:visibility="gone">
 
                     <LinearLayout
                         android:layout_width="0dp"

@@ -22,11 +22,13 @@ import com.vivian8421.mipushEnhance.R;
 public class MainActivity extends AppCompatActivity implements CompoundButton.OnCheckedChangeListener {
 
     private static final String PREFS_NAME = "settings";
+    private static final String KEY_AUTO_FREEZE_ENABLED = "auto_freeze_enabled";
     private static final String KEY_FREEZE_STRATEGY = "freeze_strategy";
     private static final int FREEZE_STRATEGY_TASK_REMOVED = 0;
     private static final int FREEZE_STRATEGY_SCREEN_OFF = 1;
 
     private CompoundButton kgzm_sw;
+    private CompoundButton autoFreezeSwitch;
     private CompoundButton freezeTaskRemovedRadio;
     private CompoundButton freezeScreenOffRadio;
     private View freezeTaskRemovedOption;
@@ -39,6 +41,7 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         kgzm_sw = findViewById(R.id.kgzm_sw);
         kgzm_sw.setChecked(isLauncherIconHidden());
         kgzm_sw.setOnCheckedChangeListener(this);
+        autoFreezeSwitch = findViewById(R.id.auto_freeze_sw);
         freezeTaskRemovedRadio = findViewById(R.id.freeze_task_removed_radio);
         freezeScreenOffRadio = findViewById(R.id.freeze_screen_off_radio);
         freezeTaskRemovedOption = findViewById(R.id.freeze_task_removed_option);
@@ -72,7 +75,11 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
 
     private void initFreezeStrategyOptions() {
         final int strategy = getFreezeStrategy();
+        boolean autoFreezeEnabled = isAutoFreezeEnabled();
+        autoFreezeSwitch.setChecked(autoFreezeEnabled);
+        autoFreezeSwitch.setOnCheckedChangeListener(this);
         applyFreezeStrategySelection(strategy);
+        applyFreezeStrategyVisibility(autoFreezeEnabled);
 
         freezeTaskRemovedOption.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -87,6 +94,24 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
                 setFreezeStrategy(FREEZE_STRATEGY_SCREEN_OFF);
             }
         });
+    }
+
+    private boolean isAutoFreezeEnabled() {
+        return getSettingsPreferences().getBoolean(KEY_AUTO_FREEZE_ENABLED, false);
+    }
+
+    private void setAutoFreezeEnabled(boolean enabled) {
+        getSettingsPreferences()
+                .edit()
+                .putBoolean(KEY_AUTO_FREEZE_ENABLED, enabled)
+                .apply();
+        applyFreezeStrategyVisibility(enabled);
+    }
+
+    private void applyFreezeStrategyVisibility(boolean enabled) {
+        int visibility = enabled ? View.VISIBLE : View.GONE;
+        freezeTaskRemovedOption.setVisibility(visibility);
+        freezeScreenOffOption.setVisibility(visibility);
     }
 
     private int getFreezeStrategy() {
@@ -122,6 +147,9 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         switch (buttonView.getId()){
             case R.id.kgzm_sw:
                 showLauncherIcon(!isChecked);
+                break;
+            case R.id.auto_freeze_sw:
+                setAutoFreezeEnabled(isChecked);
                 break;
         }
     }
